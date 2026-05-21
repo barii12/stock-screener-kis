@@ -428,19 +428,11 @@ function evaluateAdvancedSignal(stockData, chartData, marketContext) {
     targetPrices: { entry: stockData.currentPrice, tp1: 0, tp2: 0, stopLoss: 0 }
   };
 
+  // 모든 분석 항목 수행 (조기 반환 없음 - 항상 모든 지표 계산)
   const technicals = validateTechnicals(stockData, chartData);
   signal.analysis.technicals = technicals;
   signal.score += technicals.score;
   signal.reasons.push(...technicals.details);
-
-  if (technicals.score < 30) {
-    signal.status = 'AVOID'; signal.tier = 'Z';
-    signal.targetPrices.entry = stockData.currentPrice;
-    signal.targetPrices.tp1 = (stockData.currentPrice * 1.12).toFixed(0);
-    signal.targetPrices.tp2 = (stockData.currentPrice * 1.30).toFixed(0);
-    signal.targetPrices.stopLoss = (stockData.currentPrice * 0.93).toFixed(0);
-    return signal;
-  }
 
   const volume = analyzeAnomalyVolume(stockData, chartData);
   signal.analysis.volumeAnomaly = volume;
@@ -463,10 +455,16 @@ function evaluateAdvancedSignal(stockData, chartData, marketContext) {
   const cph = detectCupWithHandle(stockData);
   signal.analysis.cph = cph;
 
-  if (signal.score >= 80) { signal.status = 'BUY'; signal.tier = 'A'; signal.confidence = 'strong'; }
-  else if (signal.score >= 50) { signal.status = 'BUY'; signal.tier = signal.tier === 'A' ? 'A' : 'B'; }
-  else if (signal.score >= 30) { signal.status = 'HOLD'; signal.tier = 'C'; }
-  else { signal.status = 'SELL'; signal.tier = 'Z'; }
+  // 최종 판정 (technicals 스코어 30 미만이어도 분석은 이미 완료됨)
+  if (signal.score >= 80) {
+    signal.status = 'BUY'; signal.tier = 'A'; signal.confidence = 'strong';
+  } else if (signal.score >= 50) {
+    signal.status = 'BUY'; signal.tier = signal.tier === 'A' ? 'A' : 'B';
+  } else if (signal.score >= 30) {
+    signal.status = 'HOLD'; signal.tier = 'C';
+  } else {
+    signal.status = 'SELL'; signal.tier = 'Z';
+  }
 
   signal.targetPrices.entry = stockData.currentPrice;
   signal.targetPrices.tp1 = (stockData.currentPrice * 1.12).toFixed(0);
