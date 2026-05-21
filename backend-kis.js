@@ -519,6 +519,8 @@ const SECTOR_STOCKS = {
 
 const KOSPI_REPRESENTATIVE = ['005930', '000660', '373220', '207940', '005380', '000270', '068270', '035720', '035420', '051910', '105560', '055550', '009540', '329180'];
 
+const KOSDAQ_REPRESENTATIVE = ['036570', '251270', '259960', '352820', '328130', '196170', '237690', '323410', '377300', '141080', '054550', '054950', '099190', '278280'];
+
 async function analyzeMarketContextAuto() {
   try {
     console.log('📊 시장 컨텍스트 자동 분석 시작...');
@@ -538,7 +540,22 @@ async function analyzeMarketContextAuto() {
     const kospiChange = kospiCount > 0 ? kospiTotal / kospiCount : 0;
     console.log(`  ✅ KOSPI 평균 수익률: ${kospiChange.toFixed(2)}%`);
     
-    // 2. 섹터별 평균 수익률 계산
+    // 2. KOSDAQ 대표 종목들의 평균 수익률
+    let kosdaqTotal = 0;
+    let kosdaqCount = 0;
+    for (const code of KOSDAQ_REPRESENTATIVE) {
+      try {
+        const data = await getKisStockPrice(code);
+        kosdaqTotal += data.changePercent;
+        kosdaqCount++;
+      } catch(e) {
+        console.warn(`  ⚠ ${code} 조회 실패`);
+      }
+    }
+    const kosdaqChange = kosdaqCount > 0 ? kosdaqTotal / kosdaqCount : 0;
+    console.log(`  ✅ KOSDAQ 평균 수익률: ${kosdaqChange.toFixed(2)}%`);
+    
+    // 3. 섹터별 평균 수익률 계산
     const sectorPerformance = {};
     for (const [sector, codes] of Object.entries(SECTOR_STOCKS)) {
       let total = 0;
@@ -568,14 +585,15 @@ async function analyzeMarketContextAuto() {
     
     const result = {
       kospiChange: parseFloat(kospiChange.toFixed(2)),
-      kosdaqChange: 0,
+      kosdaqChange: parseFloat(kosdaqChange.toFixed(2)),
       leadingSector: topSectors.join(','),
       marketStrength: marketStrength,
       analysis: {
         sectorPerformance,
         topSectors,
         strengthText,
-        kospiAvg: kospiChange
+        kospiAvg: kospiChange,
+        kosdaqAvg: kosdaqChange
       }
     };
     

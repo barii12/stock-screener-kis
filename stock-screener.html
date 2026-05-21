@@ -406,11 +406,11 @@
             const marketData = data.data;
             
             document.getElementById('kospiChange').value = marketData.kospiChange.toFixed(2);
-            document.getElementById('kosdaqChange').value = '0';
+            document.getElementById('kosdaqChange').value = marketData.kosdaqChange.toFixed(2);
             document.getElementById('leadingSector').value = marketData.leadingSector;
             document.getElementById('marketStrength').value = marketData.marketStrength;
             
-            updateMarketContext(marketData.kospiChange, 0, marketData.leadingSector, marketData.marketStrength);
+            updateMarketContext(marketData.kospiChange, marketData.kosdaqChange, marketData.leadingSector, marketData.marketStrength);
             
             let sectorInfo = '';
             for (const [sector, perf] of Object.entries(marketData.analysis.sectorPerformance)) {
@@ -426,6 +426,7 @@
               `✅ 시장 분석 완료!\n\n` +
               `🎯 시장강도: ${({ 'bull': '강세장 🔥', 'neutral': '중립 ⚖️', 'bear': '약세장 ❄️' }[marketData.marketStrength])}\n` +
               `📊 KOSPI: ${marketData.kospiChange.toFixed(2)}%\n` +
+              `📊 KOSDAQ: ${marketData.kosdaqChange.toFixed(2)}%\n` +
               `🏆 주도섹터: ${marketData.leadingSector}\n\n` +
               `📈 섹터별 상승률:\n${sectorInfo}`
             );
