@@ -508,8 +508,87 @@ app.get('/search', async (req, res) => {
 // WebSocket 통신
 // ============================================================
 // ============================================================
-// 🎯 최고 등급 추천 종목 자동 스캔 (시총 3000억 이상)
+// 📊 시장 컨텍스트 자동 분석 (KOSPI/KOSDAQ 등락률 + 주도섹터 + 시장강도)
 // ============================================================
+const KOSPI_REPRESENTATIVE = ['005930', '000660', '373220', '207940', '005380', '000270', '068270', '035720', '035420', '051910', '105560', '055550', '009540', '329180'];
+
+const KOSDAQ_REPRESENTATIVE = ['036570', '251270', '259960', '352820', '328130', '196170', '237690', '323410', '377300', '141080', '054550', '054950', '099190', '278280'];
+
+const SECTOR_STOCKS = {
+  'IT':        ['005930', '000660', '035420', '035720'],
+  'Semi':      ['000660', '005930', '006400', '042700'],
+  'Bio':       ['068270', '128940', '195940', '207940'],
+  'Energy':    ['373220', '034020', '096770', '042660'],
+  'Finance':   ['105560', '055550', '086790', '138040'],
+  'Auto':      ['005380', '000270', '012330', '086280'],
+  'Shipbuild': ['009540', '329180', '042660', '010140'],
+  'Chemical':  ['011170', '009830', '051910', '096770'],
+  'Game':      ['036570', '251270', '259960', '352820']
+};
+
+async function analyzeMarketContextAuto() {
+  console.log('📊 시장 컨텍스트 자동 분석 시작...');
+  
+  // 1. KOSPI 대표 종목 평균 수익률
+  let kospiTotal = 0, kospiCount = 0;
+  for (const code of KOSPI_REPRESENTATIVE) {
+    try {
+      const data = await getKisStockPrice(code);
+      kospiTotal += data.changePercent;
+      kospiCount++;
+    } catch(e) {}
+  }
+  const kospiChange = kospiCount > 0 ? kospiTotal / kospiCount : 0;
+  console.log(`  ✅ KOSPI 평균: ${kospiChange.toFixed(2)}% (${kospiCount}개)`);
+  
+  // 2. KOSDAQ 대표 종목 평균 수익률
+  let kosdaqTotal = 0, kosdaqCount = 0;
+  for (const code of KOSDAQ_REPRESENTATIVE) {
+    try {
+      const data = await getKisStockPrice(code);
+      kosdaqTotal += data.changePercent;
+      kosdaqCount++;
+    } catch(e) {}
+  }
+  const kosdaqChange = kosdaqCount > 0 ? kosdaqTotal / kosdaqCount : 0;
+  console.log(`  ✅ KOSDAQ 평균: ${kosdaqChange.toFixed(2)}% (${kosdaqCount}개)`);
+  
+  // 3. 섹터별 평균 수익률
+  const sectorPerformance = {};
+  for (const [sector, codes] of Object.entries(SECTOR_STOCKS)) {
+    let total = 0, count = 0;
+    for (const code of codes) {
+      try {
+        const data = await getKisStockPrice(code);
+        total += data.changePercent;
+        count++;
+      } catch(e) {}
+    }
+    if (count > 0) {
+      sectorPerformance[sector] = total / count;
+      console.log(`  ✅ ${sector}: ${sectorPerformance[sector].toFixed(2)}%`);
+    }
+  }
+  
+  // 4. 상위 3개 섹터를 주도섹터로
+  const topSectors = Object.entries(sectorPerformance)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([sector]) => sector);
+  
+  // 5. 시장 강도 판정 (KOSPI 기준)
+  const marketStrength = kospiChange > 1.5 ? 'bull' : (kospiChange < -0.5 ? 'bear' : 'neutral');
+  
+  return {
+    kospiChange: parseFloat(kospiChange.toFixed(2)),
+    kosdaqChange: parseFloat(kosdaqChange.toFixed(2)),
+    leadingSector: topSectors.join(','),
+    marketStrength: marketStrength,
+    analysis: { sectorPerformance }
+  };
+}
+
+
 const MIN_MARKET_CAP = 300000000000; // 3000억 (3,000억 원)
 
 async function scanAndRecommendStocks(marketContext) {
@@ -568,6 +647,17 @@ wss.on('connection', (ws) => {
   ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
+      
+      // 📊 시장 컨텍스트 자동 분석
+      if (data.type === 'analyzeMarket') {
+        try {
+          const marketData = await analyzeMarketContextAuto();
+          ws.send(JSON.stringify({ type: 'marketAnalysis', data: marketData }));
+        } catch (err) {
+          ws.send(JSON.stringify({ type: 'error', message: '시장 분석 실패: ' + err.message }));
+        }
+        return;
+      }
       
       // 🎯 추천 종목 스캔
       if (data.type === 'recommendStocks') {

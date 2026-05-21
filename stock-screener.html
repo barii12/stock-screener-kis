@@ -288,6 +288,7 @@
 
       <div class="button-group">
         <button class="btn-primary" id="analyzeBtn" onclick="analyzeStocks()">🔍 분석 시작</button>
+        <button class="btn-primary" id="autoMarketBtn" onclick="autoAnalyzeMarket()" style="background: linear-gradient(135deg, #fd7e14, #ffc107); color: white;">📊 시장 자동 분석</button>
         <button class="btn-primary" id="recommendBtn" onclick="getRecommendedStocks()" style="background: linear-gradient(135deg, #28a745, #20c997); color: white;">🎯 추천 종목</button>
         <button class="btn-secondary" onclick="resetForm()">초기화</button>
       </div>
@@ -467,6 +468,79 @@
     }
     function hideProgress() {
       document.getElementById('progressCard').style.display = 'none';
+    }
+
+    // 📊 시장 컨텍스트 자동 분석
+    async function autoAnalyzeMarket() {
+      const btn = document.getElementById('autoMarketBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳ 분석 중...';
+
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showProgress(0, 100, '🌐 서버 연결 대기 중...');
+        connectWebSocket();
+        const waited = await waitForConnection(60000);
+        if (!waited) {
+          hideProgress();
+          btn.disabled = false; btn.textContent = '📊 시장 자동 분석';
+          alert('서버 연결 실패. 다시 시도해주세요.');
+          return;
+        }
+      }
+
+      showProgress(0, 100, '📊 시장 데이터 분석 중... (약 30초 소요)');
+
+      const marketHandler = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'marketAnalysis') {
+            ws.removeEventListener('message', marketHandler);
+            const m = data.data;
+            
+            // 입력 필드 자동 채움
+            document.getElementById('kospiChange').value = m.kospiChange.toFixed(2);
+            document.getElementById('kosdaqChange').value = m.kosdaqChange.toFixed(2);
+            document.getElementById('leadingSector').value = m.leadingSector;
+            document.getElementById('marketStrength').value = m.marketStrength;
+            
+            // 시장 컨텍스트 카드 표시
+            updateMarketContext(m.kospiChange, m.kosdaqChange, m.leadingSector, m.marketStrength);
+            saveInputs();
+            
+            // 섹터별 상승률 정리
+            let sectorInfo = '';
+            for (const [sector, perf] of Object.entries(m.analysis.sectorPerformance)) {
+              const arrow = perf > 0 ? '📈' : '📉';
+              sectorInfo += `${arrow} ${sector}: ${perf.toFixed(2)}%\n`;
+            }
+            
+            const strengthMap = { 'bull': '강세장 🔥', 'neutral': '중립 ⚖️', 'bear': '약세장 ❄️' };
+            
+            hideProgress();
+            btn.disabled = false;
+            btn.textContent = '📊 시장 자동 분석';
+            
+            alert(
+              `✅ 시장 분석 완료!\n\n` +
+              `🎯 시장강도: ${strengthMap[m.marketStrength]}\n` +
+              `📊 KOSPI: ${m.kospiChange > 0 ? '+' : ''}${m.kospiChange.toFixed(2)}%\n` +
+              `📊 KOSDAQ: ${m.kosdaqChange > 0 ? '+' : ''}${m.kosdaqChange.toFixed(2)}%\n` +
+              `🏆 주도섹터: ${m.leadingSector}\n\n` +
+              `📈 섹터별 상승률:\n${sectorInfo}`
+            );
+          } else if (data.type === 'error') {
+            ws.removeEventListener('message', marketHandler);
+            hideProgress();
+            btn.disabled = false; btn.textContent = '📊 시장 자동 분석';
+            alert('❌ ' + data.message);
+          }
+        } catch (e) {
+          console.error('응답 처리 오류:', e);
+        }
+      };
+
+      ws.addEventListener('message', marketHandler);
+      ws.send(JSON.stringify({ type: 'analyzeMarket' }));
     }
 
     // 🎯 추천 종목 조회
