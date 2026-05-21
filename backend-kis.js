@@ -503,6 +503,91 @@ app.get('/search', async (req, res) => {
 });
 
 // ============================================================
+// 시장 컨텍스트 자동 분석 (섹터별 + 시장강도)
+// ============================================================
+const SECTOR_STOCKS = {
+  'IT': ['005930', '000660', '035420', '035720'],              // 삼성전자, SK하이닉스, NAVER, 카카오
+  'Semi': ['000660', '005930', '006400', '042700'],            // SK하이닉스, 삼성전자, 삼성SDI, 한미반도체
+  'Bio': ['068270', '128940', '195940', '051910'],             // 셀트리온, 한미약품, HK이노엔, LG화학
+  'Energy': ['373220', '034020', '096770', '042660'],          // LG에너지, 두산에너빌리티, SK이노베이션, 한화오션
+  'Finance': ['105560', '055550', '086790', '138040'],         // KB금융, 신한지주, 하나금융, 메리츠금융
+  'Auto': ['005380', '000270', '012330', '086280'],            // 현대차, 기아, 현대모비스, 현대글로비스
+  'Shipbuild': ['009540', '329180', '042660', '034020'],       // 한국조선, HD현대중공업, 한화오션, 두산에너빌리티
+  'Chemical': ['011170', '009830', '051910', '096770'],        // 롯데케미칼, 한화솔루션, LG화학, SK이노베이션
+  'Game': ['036570', '251270', '259960', '352820']             // 엔씨소프트, 넷마블, 크래프톤, 하이브
+};
+
+const KOSPI_REPRESENTATIVE = ['005930', '000660', '373220', '207940', '005380', '000270', '068270', '035720', '035420', '051910', '105560', '055550', '009540', '329180'];
+
+async function analyzeMarketContextAuto() {
+  try {
+    console.log('📊 시장 컨텍스트 자동 분석 시작...');
+    
+    // 1. KOSPI 대표 종목들의 평균 수익률 (시장강도 판단용)
+    let kospiTotal = 0;
+    let kospiCount = 0;
+    for (const code of KOSPI_REPRESENTATIVE) {
+      try {
+        const data = await getKisStockPrice(code);
+        kospiTotal += data.changePercent;
+        kospiCount++;
+      } catch(e) {
+        console.warn(`  ⚠ ${code} 조회 실패`);
+      }
+    }
+    const kospiChange = kospiCount > 0 ? kospiTotal / kospiCount : 0;
+    console.log(`  ✅ KOSPI 평균 수익률: ${kospiChange.toFixed(2)}%`);
+    
+    // 2. 섹터별 평균 수익률 계산
+    const sectorPerformance = {};
+    for (const [sector, codes] of Object.entries(SECTOR_STOCKS)) {
+      let total = 0;
+      let count = 0;
+      for (const code of codes) {
+        try {
+          const data = await getKisStockPrice(code);
+          total += data.changePercent;
+          count++;
+        } catch(e) {}
+      }
+      if (count > 0) {
+        sectorPerformance[sector] = total / count;
+        console.log(`  ✅ ${sector}: ${sectorPerformance[sector].toFixed(2)}%`);
+      }
+    }
+    
+    // 3. 상위 3개 섹터 추출 (주도섹터)
+    const topSectors = Object.entries(sectorPerformance)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([sector]) => sector);
+    
+    // 4. 시장강도 판정
+    const marketStrength = kospiChange > 1.5 ? 'bull' : (kospiChange < -0.5 ? 'bear' : 'neutral');
+    const strengthText = { 'bull': '강세장', 'neutral': '중립', 'bear': '약세장' }[marketStrength];
+    
+    const result = {
+      kospiChange: parseFloat(kospiChange.toFixed(2)),
+      kosdaqChange: 0,
+      leadingSector: topSectors.join(','),
+      marketStrength: marketStrength,
+      analysis: {
+        sectorPerformance,
+        topSectors,
+        strengthText,
+        kospiAvg: kospiChange
+      }
+    };
+    
+    console.log(`  🎯 최종: ${strengthText} / 주도섹터: ${result.leadingSector}`);
+    return result;
+  } catch (err) {
+    console.error('❌ 시장 분석 실패:', err.message);
+    throw err;
+  }
+}
+
+// ============================================================
 // WebSocket 통신
 // ============================================================
 wss.on('connection', (ws) => {
@@ -512,7 +597,24 @@ wss.on('connection', (ws) => {
   ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
-      if (data.type === 'checkStock') {
+      
+      // 시장 자동 분석 요청
+      if (data.type === 'analyzeMarket') {
+        try {
+          const marketData = await analyzeMarketContextAuto();
+          ws.send(JSON.stringify({
+            type: 'marketAnalysis',
+            data: marketData
+          }));
+        } catch (err) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: '시장 분석 실패: ' + err.message
+          }));
+        }
+      }
+      // 종목 분석 요청
+      else if (data.type === 'checkStock') {
         const input = data.stockName;
         const stockCode = await findStockCode(input);
 
