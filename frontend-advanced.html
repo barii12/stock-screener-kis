@@ -47,17 +47,8 @@
       padding: 24px;
       box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
       margin-bottom: 20px;
-      animation: slideIn 0.3s ease-out;
     }
 
-    @keyframes slideIn {
-      from { opacity: 0; transform: translateY(20px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    /* ════════════════════════════════════════════ */
-    /* 섹션 1: 시장 컨텍스트                      */
-    /* ════════════════════════════════════════════ */
     .market-context {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -84,9 +75,6 @@
       font-weight: 700;
     }
 
-    /* ════════════════════════════════════════════ */
-    /* 섹션 2: 티어 분류 및 테이블                */
-    /* ════════════════════════════════════════════ */
     .section-title {
       font-size: 1.3em;
       font-weight: 700;
@@ -121,7 +109,6 @@
       background: #f8f9fa;
     }
 
-    /* 티어별 색상 */
     .tier-a { color: #dc3545; font-weight: 700; }
     .tier-b { color: #fd7e14; font-weight: 600; }
     .tier-c { color: #ffc107; font-weight: 600; }
@@ -131,9 +118,6 @@
     .volume-high { color: #fd7e14; font-weight: 600; }
     .volume-normal { color: #28a745; }
 
-    /* ════════════════════════════════════════════ */
-    /* 섹션 3: 상세 분석                          */
-    /* ════════════════════════════════════════════ */
     .detail-analysis {
       background: #f8f9fa;
       border-left: 4px solid #667eea;
@@ -176,9 +160,6 @@
       line-height: 1.6;
     }
 
-    /* ════════════════════════════════════════════ */
-    /* 섹션 4: Action Plan                        */
-    /* ════════════════════════════════════════════ */
     .action-plan {
       background: #fff3cd;
       border: 1px solid #ffc107;
@@ -201,9 +182,6 @@
       font-size: 0.95em;
     }
 
-    /* ════════════════════════════════════════════ */
-    /* 입력 영역                                  */
-    /* ════════════════════════════════════════════ */
     .input-section {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -272,23 +250,6 @@
       background: rgba(255, 255, 255, 0.3);
     }
 
-    /* ════════════════════════════════════════════ */
-    /* 로딩 & 상태                               */
-    /* ════════════════════════════════════════════ */
-    .spinner {
-      border: 3px solid rgba(255, 255, 255, 0.3);
-      border-top: 3px solid white;
-      border-radius: 50%;
-      width: 30px;
-      height: 30px;
-      animation: spin 1s linear infinite;
-      margin: 20px auto;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
     .status-badge {
       display: inline-block;
       padding: 6px 12px;
@@ -302,25 +263,11 @@
     .badge-sell { background: #f8d7da; color: #721c24; }
     .badge-avoid { background: #e2e3e5; color: #383d41; }
 
-    /* ════════════════════════════════════════════ */
-    /* 반응형                                     */
-    /* ════════════════════════════════════════════ */
     @media (max-width: 768px) {
-      .analysis-grid {
-        grid-template-columns: 1fr;
-      }
-
-      header h1 {
-        font-size: 1.6em;
-      }
-
-      table {
-        font-size: 0.85em;
-      }
-
-      th, td {
-        padding: 8px;
-      }
+      .analysis-grid { grid-template-columns: 1fr; }
+      header h1 { font-size: 1.6em; }
+      table { font-size: 0.85em; }
+      th, td { padding: 8px; }
     }
 
     .info-box {
@@ -409,22 +356,10 @@
     <div class="card" id="marketContextCard" style="display: none;">
       <h2 class="section-title">📍 시장 컨텍스트</h2>
       <div class="market-context">
-        <div class="context-box">
-          <h3>KOSPI</h3>
-          <div class="value" id="contextKospi">+0.5%</div>
-        </div>
-        <div class="context-box">
-          <h3>KOSDAQ</h3>
-          <div class="value" id="contextKosdaq">-0.2%</div>
-        </div>
-        <div class="context-box">
-          <h3>시장 강도</h3>
-          <div class="value" id="contextStrength">중립</div>
-        </div>
-        <div class="context-box">
-          <h3>주도 섹터</h3>
-          <div class="value" id="contextSector">IT</div>
-        </div>
+        <div class="context-box"><h3>KOSPI</h3><div class="value" id="contextKospi">+0.5%</div></div>
+        <div class="context-box"><h3>KOSDAQ</h3><div class="value" id="contextKosdaq">-0.2%</div></div>
+        <div class="context-box"><h3>시장 강도</h3><div class="value" id="contextStrength">중립</div></div>
+        <div class="context-box"><h3>주도 섹터</h3><div class="value" id="contextSector">IT</div></div>
       </div>
     </div>
 
@@ -482,20 +417,17 @@
       if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
         return;
       }
-
       console.log('🌐 Render 서버와 안전한 실시간 통신망 연결을 시도합니다...');
       ws = new WebSocket(BACKEND_URL);
 
       ws.onopen = () => {
         console.log('🎯 [성공] Render 클라우드 서버와 실시간 통신 주파수가 맞았습니다!');
       };
-
       ws.onerror = (error) => {
         console.error('❌ [에러] 소켓 통신 오류가 발생했습니다:', error);
       };
-
       ws.onclose = () => {
-        console.log('🔌 서버와의 연결이 종료되었습니다. 재요청 시 자동으로 다시 연결됩니다.');
+        console.log('🔌 서버와의 연결이 종료되었습니다.');
       };
     }
 
@@ -504,4 +436,217 @@
       const kosdaqChange = parseFloat(document.getElementById('kosdaqChange').value) || 0;
       const leadingSector = document.getElementById('leadingSector').value;
       const marketStrength = document.getElementById('marketStrength').value;
-      const stockList = document.getElementById('stockList').value.
+      const stockList = document.getElementById('stockList').value.split(',').map(s => s.trim()).filter(s => s);
+
+      if (stockList.length === 0) {
+        alert('분석할 종목을 입력해주세요.');
+        return;
+      }
+
+      updateMarketContext(kospiChange, kosdaqChange, leadingSector, marketStrength);
+
+      document.getElementById('tierListCard').style.display = 'block';
+      const tierTableBody = document.getElementById('tierTableBody');
+      tierTableBody.innerHTML = '<tr><td colspan="8" style="text-align:center;">⏳ Render 클라우드 서버에서 한국투자증권 API 데이터를 분석 중입니다... (약 5~15초 소요)</td></tr>';
+
+      allSignals = [];
+
+      if (!ws || ws.readyState === WebSocket.CLOSED) {
+        connectWebSocket();
+      }
+
+      for (const stockName of stockList) {
+        if (!stockName) continue;
+        console.log(`🔍 [요청] ${stockName} 분석을 대기열에 추가함...`);
+        const signal = await analyzeStockAdvanced(
+          stockName,
+          { kospiChange, kosdaqChange, leadingSector, marketStrength }
+        );
+        if (signal) allSignals.push(signal);
+      }
+      displayResults();
+    }
+
+    function updateMarketContext(kospi, kosdaq, sector, strength) {
+      document.getElementById('marketContextCard').style.display = 'block';
+      document.getElementById('contextKospi').textContent = (kospi > 0 ? '+' : '') + kospi.toFixed(2) + '%';
+      document.getElementById('contextKosdaq').textContent = (kosdaq > 0 ? '+' : '') + kosdaq.toFixed(2) + '%';
+      
+      let strengthText = '중립';
+      if (strength === 'bull') strengthText = '강세장';
+      if (strength === 'bear') strengthText = '약세장';
+      document.getElementById('contextStrength').textContent = strengthText;
+      document.getElementById('contextSector').textContent = sector || 'IT';
+    }
+
+    async function analyzeStockAdvanced(stockName, marketContext) {
+      return new Promise((resolve) => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          console.log('⏳ 서버 통신망이 열리기를 기다리는 중입니다... 1초 후 자동 재시도');
+          if (!ws || ws.readyState === WebSocket.CLOSED) {
+            connectWebSocket();
+          }
+          setTimeout(() => {
+            analyzeStockAdvanced(stockName, marketContext).then(resolve);
+          }, 1000);
+          return;
+        }
+
+        const handler = (event) => {
+          const data = JSON.parse(event.data);
+          if (data.type === 'signal') {
+            ws.removeEventListener('message', handler);
+            console.log(`✅ [수신완료] ${stockName} 분석 완료 데이터 도착`);
+            resolve({ stockData: data.stockData, signal: data.signal });
+          } 
+          else if (data.type === 'error') {
+            ws.removeEventListener('message', handler);
+            console.error(`❌ [서버 실패] ${stockName}: ${data.message}`);
+            resolve(null); 
+          }
+        };
+        ws.addEventListener('message', handler);
+        ws.send(JSON.stringify({ type: 'checkStock', stockName: stockName, marketContext: marketContext }));
+      });
+    }
+
+    function displayResults() {
+      const tierTableBody = document.getElementById('tierTableBody');
+      tierTableBody.innerHTML = '';
+
+      if (allSignals.length === 0) {
+        tierTableBody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#dc3545; font-weight:bold;">❌ 분석된 종목 결과가 없습니다. 콘솔(F12) 창의 내역을 확인해 주세요.</td></tr>';
+        return;
+      }
+
+      const tierA = allSignals.filter(s => s.signal.tier === 'A').sort((a, b) => b.signal.score - a.signal.score);
+      const tierB = allSignals.filter(s => s.signal.tier === 'B').sort((a, b) => b.signal.score - a.signal.score);
+      const tierC = allSignals.filter(s => s.signal.tier === 'C').sort((a, b) => b.signal.score - a.signal.score);
+      const tierZ = allSignals.filter(s => s.signal.tier === 'Z');
+
+      [...tierA, ...tierB, ...tierC, ...tierZ].forEach(item => {
+        const tierClass = 'tier-' + item.signal.tier.toLowerCase();
+        
+        let volumeClass = 'volume-normal';
+        if (item.signal.analysis?.volumeAnomaly?.anomalyLevel === 'critical') {
+          volumeClass = 'volume-critical';
+        } else if (item.signal.analysis?.volumeAnomaly?.anomalyLevel === 'high') {
+          volumeClass = 'volume-high';
+        }
+
+        let changeSign = '';
+        if (item.stockData.changePercent > 0) changeSign = '+';
+
+        const row = '<tr>' +
+          '<td class="' + tierClass + '">' + item.signal.tier + '</td>' +
+          '<td><strong>' + item.stockData.stockName + '</strong></td>' +
+          '<td>₩' + item.stockData.currentPrice.toLocaleString() + '</td>' +
+          '<td>' + changeSign + item.stockData.changePercent.toFixed(2) + '%</td>' +
+          '<td class="' + volumeClass + '">' + item.signal.analysis.volumeAnomaly.volumeMultiple.toFixed(1) + 'x</td>' +
+          '<td><span class="status-badge badge-' + item.signal.status.toLowerCase() + '">' + item.signal.status + '</span></td>' +
+          '<td><strong>' + item.signal.score + '</strong>/100</td>' +
+          '<td>' + item.signal.confidence + '</td>' +
+          '</tr>';
+        tierTableBody.innerHTML += row;
+      });
+
+      displayDetailAnalysis(tierA);
+      displayActionPlan([...tierA, ...tierB, ...tierC]);
+      displayMonitoring(tierA);
+    }
+
+    function displayDetailAnalysis(tierA) {
+      const container = document.getElementById('detailAnalysisContainer');
+      container.innerHTML = '';
+      if (tierA.length === 0) return;
+
+      tierA.forEach((item, idx) => {
+        const signal = item.signal;
+        const tech = signal.analysis.technicals;
+        const vol = signal.analysis.volumeAnomaly;
+        const sec = signal.analysis.sector;
+        const rs = signal.analysis.rs;
+
+        let scoreClass = 'score-below-40';
+        if (signal.score >= 80) scoreClass = 'score-80-100';
+        else if (signal.score >= 60) scoreClass = 'score-60-79';
+        else if (signal.score >= 40) scoreClass = 'score-40-59';
+
+        let maText = tech.maAlignment ? '✓ Yes' : '✗ No';
+        let smartMoneyText = vol.smartMoneySignal ? '✓ 진입 신호' : '⚠ 모니터링';
+        
+        let sectorText = '⚠ 중립';
+        if (sec.isLeadingSector) sectorText = '✓ Yes';
+        else if (sec.isWeakSector) sectorText = '✗ 약세';
+
+        let html = '<div class="card">' +
+          '<div class="stock-name">' + (idx + 1) + '. ' + item.stockData.stockName + ' ' +
+          '<span class="status-badge badge-' + signal.status.toLowerCase() + '" style="margin-left: 12px;">' + signal.status + '</span>' +
+          '</div>' +
+          '<div class="score-indicator ' + scoreClass + '">' + signal.score + '</div>' +
+          '<div class="analysis-grid">' +
+          '<div class="analysis-section">' +
+          '<h4>📈 기술적 검증</h4>' +
+          '<div class="analysis-item"><strong>MA 정배열:</strong> ' + maText + '</div>' +
+          '<div class="analysis-item"><strong>VCP 상태:</strong> ' + tech.vcpStatus + '</div>' +
+          '<div class="analysis-item"><strong>강도:</strong> ' + tech.strength + '</div>' +
+          '<div class="analysis-item" style="color: #667eea; margin-top: 10px;">' + tech.details.join('<br>') + '</div>' +
+          '</div>' +
+          '<div class="analysis-section">' +
+          '<h4>💧 거래량 이상 감지 (1순위)</h4>' +
+          '<div class="analysis-item"><strong>거래량 배수:</strong> ' + vol.volumeMultiple.toFixed(1) + '배</div>' +
+          '<div class="analysis-item"><strong>이상 수준:</strong> ' + vol.anomalyLevel.toUpperCase() + '</div>' +
+          '<div class="analysis-item"><strong>스마트머니:</strong> ' + smartMoneyText + '</div>' +
+          '<div class="analysis-item" style="color: #667eea; margin-top: 10px;">' + vol.details.join('<br>') + '</div>' +
+          '</div>' +
+          '<div class="analysis-section">' +
+          '<h4>🏢 섹터 순환매</h4>' +
+          '<div class="analysis-item"><strong>섹터:</strong> ' + item.stockData.sector + '</div>' +
+          '<div class="analysis-item"><strong>주도 섹터:</strong> ' + sectorText + '</div>' +
+          '<div class="analysis-item" style="color: #667eea; margin-top: 10px;">' + sec.details.join('<br>') + '</div>' +
+          '</div>' +
+          '<div class="analysis-section">' +
+          '<h4>📊 상대 강도 (RS Rating)</h4>' +
+          '<div class="analysis-item"><strong>RS 등급:</strong> ' + rs.relativeStrength + '</div>' +
+          '<div class="analysis-item" style="color: #667eea; margin-top: 10px;">' + rs.details.join('<br>') + '</div>' +
+          '</div>' +
+          '</div>';
+
+        if (signal.analysis.cph.isCupWithHandle) {
+          html += '<div class="warning-box">' +
+            '⚠️ <strong>Cup with Handle 가능성</strong><br>' +
+            '핸들 깊이: ' + signal.analysis.cph.handleDepth.toFixed(1) + '% | 신뢰도: ' + signal.analysis.cph.confidence + '%<br>' +
+            signal.analysis.cph.details.join('<br>') +
+            '</div>';
+        }
+
+        html += '<div style="background: #f8f9fa; padding: 12px; border-radius: 6px; margin-top: 12px;">' +
+          '<strong>🎯 종합 판단:</strong><br>' + signal.reasons.join('<br>') +
+          '</div></div>';
+
+        container.innerHTML += html;
+      });
+    }
+
+    function displayActionPlan(signals) {
+      if (signals.length === 0) {
+        document.getElementById('actionPlanCard').style.display = 'none';
+        return;
+      }
+      document.getElementById('actionPlanCard').style.display = 'block';
+      const tbody = document.getElementById('actionTableBody');
+      tbody.innerHTML = '';
+
+      signals.forEach(item => {
+        const signal = item.signal;
+        const tp = signal.targetPrices;
+        const timeline = signal.tier === 'A' ? '즉시~1주' : (signal.tier === 'B' ? '3~6주' : '2개월+');
+
+        const row = '<tr>' +
+          '<td class="tier-' + signal.tier.toLowerCase() + '"><strong>' + signal.tier + '</strong></td>' +
+          '<td>' + item.stockData.stockName + '</td>' +
+          '<td>₩' + item.stockData.currentPrice.toLocaleString() + '</td>' +
+          '<td>₩' + tp.tp1 + '</td>' +
+          '<td>₩' + tp.tp2 + '</td>' +
+          '<td style="color: #dc3545; font-weight: 700;">₩' + tp.stopLoss + '</td>' +
+          '<td>' + timeline + '</td>' +
