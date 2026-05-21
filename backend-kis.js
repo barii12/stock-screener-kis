@@ -21,52 +21,36 @@ let marketContext = {
   marketStrength: 'neutral'
 };
 
-// ═══════════════════════════════════════════════════════════
-// 환경 변수 (Render에서 설정)
-// ═══════════════════════════════════════════════════════════
+// 환경 변수 설정
 const KIS_API_KEY = process.env.KIS_API_KEY || 'YOUR_API_KEY';
 const KIS_SECRET_KEY = process.env.KIS_SECRET_KEY || 'YOUR_SECRET_KEY';
 const KIS_ACCOUNT = process.env.KIS_ACCOUNT || 'YOUR_ACCOUNT';
 const KIS_ACCOUNT_CODE = process.env.KIS_ACCOUNT_CODE || '00';
 
-// ⚠️ 중요: 만약 '모의투자(VTS)' 키를 발급받으셨다면 아래 주소를 사용하세요!
-// const KIS_BASE_URL = 'https://openapivts.koreainvestment.com:29443';
 const KIS_BASE_URL = 'https://openapi.koreainvestment.com:9443'; // 실전투자용
 
-// ═══════════════════════════════════════════════════════════
 // 1. 한국투자증권 인증 토큰 발급
-// ═══════════════════════════════════════════════════════════
 async function getKisAuthToken() {
   try {
     const response = await axios.post(
       `${KIS_BASE_URL}/oauth2/tokenP`,
-      {
-        grant_type: 'client_credentials',
-        appkey: KIS_API_KEY,
-        appsecret: KIS_SECRET_KEY
-      },
+      { grant_type: 'client_credentials', appkey: KIS_API_KEY, appsecret: KIS_SECRET_KEY },
       { headers: { 'Content-Type': 'application/json' } }
     );
     return response.data.access_token;
   } catch (err) {
-    console.error('KIS 토큰 발급 실패:', err.response?.data || err.message);
     throw new Error('인증 토큰 발급 실패 (키 값을 다시 확인해주세요)');
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 2. KIS API - 주식 현재가 조회 (방어 코드 추가)
-// ═══════════════════════════════════════════════════════════
+// 2. KIS API - 주식 현재가 조회
 async function getKisStockPrice(stockCode) {
   try {
     const token = await getKisAuthToken();
     const response = await axios.get(
       `${KIS_BASE_URL}/uapi/domestic-stock/v1/quotations/inquire-price`,
       {
-        params: {
-          fid_cond_mrkt_div_code: 'J',
-          fid_input_iscd: stockCode
-        },
+        params: { fid_cond_mrkt_div_code: 'J', fid_input_iscd: stockCode },
         headers: {
           'Content-Type': 'application/json',
           'authorization': `Bearer ${token}`,
@@ -77,13 +61,11 @@ async function getKisStockPrice(stockCode) {
       }
     );
 
-    // KIS API가 에러를 냈는데 HTTP 200으로 보낸 경우 방어 (빈 깡통 방어)
     if (!response.data.output) {
-      throw new Error(`[한국투자증권 API 거절] ${response.data.msg1 || '데이터가 없습니다.'}`);
+      throw new Error(`[API 거절] ${response.data.msg1 || '데이터가 없습니다.'}`);
     }
 
     const data = response.data.output;
-    
     return {
       stockCode: stockCode,
       stockName: data.hts_kor_isnm || stockCode,
@@ -99,34 +81,29 @@ async function getKisStockPrice(stockCode) {
       timestamp: new Date().toISOString()
     };
   } catch (err) {
-    console.error(`KIS 주식 데이터 조회 실패 (${stockCode}):`, err.message);
     throw err;
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 3. KIS API - 주식 검색 (종목명 → 코드)
-// ═══════════════════════════════════════════════════════════
+// 3. KIS API - 주식 검색 (✅ 배열 깊이 오류 수정)
 async function searchKisStock(query) {
   try {
     const response = await axios.get('https://ac.finance.naver.com/ac', {
       params: { q: query, t: 'A', q_enc: 'UTF-8', st: '111', r_format: 'json' },
       timeout: 5000
     });
-
-    if (response.data?.items?.[0]) {
-      return response.data.items[0][1]; // 종목코드
+    
+    // 이전에 에러가 났던 배열 참조 깊이 완벽 수정
+    if (response.data && response.data.items && response.data.items[0] && response.data.items[0][0]) {
+      return response.data.items[0][0][1]; // 정확한 종목코드 추출
     }
     return null;
   } catch (err) {
-    console.error('종목 검색 실패:', err.message);
     return null;
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 4. KIS API - 일봉 차트 데이터
-// ═══════════════════════════════════════════════════════════
+// 4. KIS API - 일봉 차트 데이터 (✅ output2 배열 참조 오류 수정)
 async function getKisChartData(stockCode) {
   try {
     const token = await getKisAuthToken();
@@ -149,8 +126,11 @@ async function getKisChartData(stockCode) {
       }
     );
 
-    const chartData = response.data.output1;
-    if (!chartData) return { chartData: [], ma5: 0, ma10: 0, ma20: 0, ma50: 0, ma200: 0 };
+    // KIS API 일봉 차트 데이터는 output1(X)이 아니라 output2(O)에 담겨 옵니다.
+    const chartData = response.data.output2;
+    if (!chartData || !Array.isArray(chartData)) {
+      return { chartData: [], ma5: 0, ma10: 0, ma20: 0, ma50: 0, ma200: 0 };
+    }
     
     let prices = chartData.map(d => ({
       date: d.stck_bsop_date,
@@ -172,7 +152,6 @@ async function getKisChartData(stockCode) {
       ma200: calculateMA(closePrices, 200)
     };
   } catch (err) {
-    console.error('차트 데이터 조회 실패:', err.message);
     return { chartData: [], ma5: 0, ma10: 0, ma20: 0, ma50: 0, ma200: 0 };
   }
 }
@@ -183,9 +162,7 @@ function calculateMA(prices, period) {
   return Math.round(sum / period);
 }
 
-// ═══════════════════════════════════════════════════════════
 // 5. 기술 지표 분석
-// ═══════════════════════════════════════════════════════════
 function validateTechnicals(stockData, chartData) {
   const result = { score: 0, details: [], vcpStatus: 'none', maAlignment: false, strength: 'weak' };
   const { currentPrice } = stockData;
@@ -266,7 +243,6 @@ function calculateRSRating(stockData, marketContext) {
   return result;
 }
 
-// ⚠️ 화면 충돌의 원인이었던 CPH 함수 추가
 function detectCupWithHandle(stockData) {
   const result = { isCupWithHandle: false, handleDepth: 0, confidence: 0, details: [] };
   const high30 = stockData.high52Week || stockData.currentPrice * 1.15;
@@ -279,9 +255,7 @@ function detectCupWithHandle(stockData) {
   return result;
 }
 
-// ═══════════════════════════════════════════════════════════
 // 6. 최종 신호 판정
-// ═══════════════════════════════════════════════════════════
 function evaluateAdvancedSignal(stockData, chartData, marketContext) {
   const signal = {
     status: 'HOLD', tier: 'C', score: 0, confidence: 'weak', analysis: {}, reasons: [],
@@ -303,7 +277,6 @@ function evaluateAdvancedSignal(stockData, chartData, marketContext) {
   const rs = calculateRSRating(stockData, marketContext);
   signal.analysis.rs = rs; signal.score += rs.rsRating; signal.reasons.push(...rs.details);
 
-  // ⚠️ 누락되었던 CPH 통합
   const cph = detectCupWithHandle(stockData);
   signal.analysis.cph = cph;
 
@@ -320,9 +293,7 @@ function evaluateAdvancedSignal(stockData, chartData, marketContext) {
   return signal;
 }
 
-// ═══════════════════════════════════════════════════════════
 // WebSocket 통신
-// ═══════════════════════════════════════════════════════════
 wss.on('connection', (ws) => {
   console.log('✅ 클라이언트 연결됨');
   clients.push(ws);
@@ -332,10 +303,11 @@ wss.on('connection', (ws) => {
       const data = JSON.parse(message);
       if (data.type === 'checkStock') {
         const input = data.stockName;
+        
         let stockCode = input.length === 6 ? input : await searchKisStock(input);
         
         if (!stockCode) {
-          ws.send(JSON.stringify({ type: 'error', message: `'${input}' 종목코드 검색에 실패했습니다.` }));
+          ws.send(JSON.stringify({ type: 'error', message: `'${input}' 종목코드 검색에 실패했습니다. (정확한 종목명이나 코드를 입력해주세요)` }));
           return;
         }
 
@@ -351,7 +323,6 @@ wss.on('connection', (ws) => {
       }
     } catch (err) {
       console.error('에러 발생:', err.message);
-      // 빈 깡통이나 에러 발생 시 정상적으로 에러 메시지만 프론트로 전송
       ws.send(JSON.stringify({ type: 'error', message: err.message }));
     }
   });
@@ -362,5 +333,5 @@ wss.on('connection', (ws) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`🚀 시스템 구동 완료! 포트: ${PORT} (한국투자증권 API 연결 대기중)`);
+  console.log(`🚀 시스템 구동 완료! 포트: ${PORT}`);
 });
