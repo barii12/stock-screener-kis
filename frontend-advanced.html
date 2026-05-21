@@ -369,7 +369,6 @@
       <p>미너비니 상승 2단계 + 사이먼스 수급 이상 감지 기반</p>
     </header>
 
-    <!-- 시장 컨텍스트 입력 -->
     <div class="card" style="background: transparent; box-shadow: none;">
       <div class="input-section">
         <div class="input-group">
@@ -407,7 +406,6 @@
       </div>
     </div>
 
-    <!-- 시장 컨텍스트 -->
     <div class="card" id="marketContextCard" style="display: none;">
       <h2 class="section-title">📍 시장 컨텍스트</h2>
       <div class="market-context">
@@ -430,7 +428,6 @@
       </div>
     </div>
 
-    <!-- 티어별 리스트 -->
     <div class="card" id="tierListCard" style="display: none;">
       <h2 class="section-title">🎯 티어별 종목 리스트</h2>
       <table id="tierTable">
@@ -450,10 +447,8 @@
       </table>
     </div>
 
-    <!-- Tier A 상세 분석 -->
     <div id="detailAnalysisContainer"></div>
 
-    <!-- Action Plan -->
     <div class="card" id="actionPlanCard" style="display: none;">
       <h2 class="section-title">⚡ Action Plan</h2>
       <table id="actionTable">
@@ -472,7 +467,6 @@
       </table>
     </div>
 
-    <!-- 모니터링 포인트 -->
     <div class="card" id="monitoringCard" style="display: none;">
       <h2 class="section-title">📌 핵심 모니터링 포인트</h2>
       <div id="monitoringContent"></div>
@@ -485,302 +479,5 @@
     let allSignals = [];
 
     function connectWebSocket() {
-      ws = new WebSocket(BACKEND_URL);
-      ws.onerror = () => {
-        alert('❌ 백엔드 연결 실패. backend-advanced.js를 실행했는지 확인하세요.');
-      };
-    }
-
-    async function analyzeStocks() {
-      const kospiChange = parseFloat(document.getElementById('kospiChange').value) || 0;
-      const kosdaqChange = parseFloat(document.getElementById('kosdaqChange').value) || 0;
-      const leadingSector = document.getElementById('leadingSector').value;
-      const marketStrength = document.getElementById('marketStrength').value;
-      const stockList = document.getElementById('stockList').value.split(',').map(s => s.trim());
-
-      // 시장 컨텍스트 업데이트
-      updateMarketContext(kospiChange, kosdaqChange, leadingSector, marketStrength);
-
-      allSignals = [];
-
-      for (const stockName of stockList) {
-        if (!stockName) continue;
-
-        const signal = await analyzeStockAdvanced(
-          stockName,
-          { kospiChange, kosdaqChange, leadingSector, marketStrength }
-        );
-
-        if (signal) allSignals.push(signal);
-      }
-
-      // 결과 표시
-      displayResults();
-    }
-
-    function updateMarketContext(kospi, kosdaq, sector, strength) {
-      document.getElementById('marketContextCard').style.display = 'block';
-      document.getElementById('contextKospi').textContent = `${kospi > 0 ? '+' : ''}${kospi.toFixed(2)}%`;
-      document.getElementById('contextKosdaq').textContent = `${kosdaq > 0 ? '+' : ''}${kosdaq.toFixed(2)}%`;
-      document.getElementById('contextStrength').textContent = 
-        strength === 'bull' ? '강세장' : strength === 'bear' ? '약세장' : '중립';
-      document.getElementById('contextSector').textContent = sector || 'IT';
-    }
-
-    async function analyzeStockAdvanced(stockName, marketContext) {
-      return new Promise((resolve) => {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-          connectWebSocket();
-          setTimeout(() => {
-            analyzeStockAdvanced(stockName, marketContext).then(resolve);
-          }, 1000);
-          return;
-        }
-
-        const handler = (event) => {
-          const data = JSON.parse(event.data);
-          if (data.type === 'signal') {
-            ws.removeEventListener('message', handler);
-            resolve({
-              stockData: data.stockData,
-              signal: data.signal
-            });
-          }
-        };
-
-        ws.addEventListener('message', handler);
-        ws.send(JSON.stringify({
-          type: 'checkStock',
-          stockName: stockName,
-          marketContext: marketContext
-        }));
-      });
-    }
-
-    function displayResults() {
-      // 티어별 정렬
-      const tierA = allSignals.filter(s => s.signal.tier === 'A').sort((a, b) => b.signal.score - a.signal.score);
-      const tierB = allSignals.filter(s => s.signal.tier === 'B').sort((a, b) => b.signal.score - a.signal.score);
-      const tierC = allSignals.filter(s => s.signal.tier === 'C').sort((a, b) => b.signal.score - a.signal.score);
-      const tierZ = allSignals.filter(s => s.signal.tier === 'Z');
-
-      // 1. 티어 리스트
-      document.getElementById('tierListCard').style.display = 'block';
-      const tierTableBody = document.getElementById('tierTableBody');
-      tierTableBody.innerHTML = '';
-
-      [...tierA, ...tierB, ...tierC, ...tierZ].forEach(item => {
-        const tierClass = `tier-${item.signal.tier.toLowerCase()}`;
-        const volumeClass = item.signal.analysis?.volumeAnomaly?.anomalyLevel === 'critical' ? 'volume-critical' :
-                           item.signal.analysis?.volumeAnomaly?.anomalyLevel === 'high' ? 'volume-high' : 'volume-normal';
-
-        const row = `
-          <tr>
-            <td class="${tierClass}">${item.signal.tier}</td>
-            <td><strong>${item.stockData.stockName}</strong></td>
-            <td>₩${item.stockData.currentPrice.toLocaleString()}</td>
-            <td>${item.stockData.changePercent > 0 ? '+' : ''}${item.stockData.changePercent.toFixed(2)}%</td>
-            <td class="${volumeClass}">${item.signal.analysis.volumeAnomaly.volumeMultiple.toFixed(1)}x</td>
-            <td><span class="status-badge badge-${item.signal.status.toLowerCase()}">${item.signal.status}</span></td>
-            <td><strong>${item.signal.score}</strong>/100</td>
-            <td>${item.signal.confidence}</td>
-          </tr>
-        `;
-        tierTableBody.innerHTML += row;
-      });
-
-      // 2. Tier A 상세 분석
-      displayDetailAnalysis(tierA);
-
-      // 3. Action Plan
-      displayActionPlan([...tierA, ...tierB, ...tierC]);
-
-      // 4. 모니터링 포인트
-      displayMonitoring(tierA);
-    }
-
-    function displayDetailAnalysis(tierA) {
-      if (tierA.length === 0) return;
-
-      const container = document.getElementById('detailAnalysisContainer');
-      container.innerHTML = '';
-
-      tierA.forEach((item, idx) => {
-        const signal = item.signal;
-        const tech = signal.analysis.technicals;
-        const vol = signal.analysis.volumeAnomaly;
-        const sec = signal.analysis.sector;
-        const rs = signal.analysis.rs;
-
-        const scoreClass = signal.score >= 80 ? 'score-80-100' :
-                          signal.score >= 60 ? 'score-60-79' :
-                          signal.score >= 40 ? 'score-40-59' : 'score-below-40';
-
-        const html = `
-          <div class="card">
-            <div class="stock-name">
-              ${idx + 1}. ${item.stockData.stockName} 
-              <span class="status-badge badge-${signal.status.toLowerCase()}" style="margin-left: 12px;">
-                ${signal.status}
-              </span>
-            </div>
-
-            <div class="score-indicator ${scoreClass}">${signal.score}</div>
-
-            <div class="analysis-grid">
-              <!-- 1. 기술적 검증 -->
-              <div class="analysis-section">
-                <h4>📈 기술적 검증</h4>
-                <div class="analysis-item"><strong>MA 정배열:</strong> ${tech.maAlignment ? '✓ Yes' : '✗ No'}</div>
-                <div class="analysis-item"><strong>VCP 상태:</strong> ${tech.vcpStatus}</div>
-                <div class="analysis-item"><strong>강도:</strong> ${tech.strength}</div>
-                <div class="analysis-item" style="color: #667eea; margin-top: 10px;">
-                  ${tech.details.map(d => `${d}<br>`).join('')}
-                </div>
-              </div>
-
-              <!-- 2. 수급 해부 -->
-              <div class="analysis-section">
-                <h4>💧 거래량 이상 감지 (1순위)</h4>
-                <div class="analysis-item"><strong>거래량 배수:</strong> ${vol.volumeMultiple.toFixed(1)}배</div>
-                <div class="analysis-item"><strong>이상 수준:</strong> ${vol.anomalyLevel.toUpperCase()}</div>
-                <div class="analysis-item"><strong>스마트머니:</strong> ${vol.smartMoneySignal ? '✓ 진입 신호' : '⚠ 모니터링'}</div>
-                <div class="analysis-item" style="color: #667eea; margin-top: 10px;">
-                  ${vol.details.map(d => `${d}<br>`).join('')}
-                </div>
-              </div>
-
-              <!-- 3. 섹터 -->
-              <div class="analysis-section">
-                <h4>🏢 섹터 순환매</h4>
-                <div class="analysis-item"><strong>섹터:</strong> ${item.stockData.sector}</div>
-                <div class="analysis-item"><strong>주도 섹터:</strong> ${sec.isLeadingSector ? '✓ Yes' : sec.isWeakSector ? '✗ 약세' : '⚠ 중립'}</div>
-                <div class="analysis-item" style="color: #667eea; margin-top: 10px;">
-                  ${sec.details.map(d => `${d}<br>`).join('')}
-                </div>
-              </div>
-
-              <!-- 4. 상대 강도 -->
-              <div class="analysis-section">
-                <h4>📊 상대 강도 (RS Rating)</h4>
-                <div class="analysis-item"><strong>RS 등급:</strong> ${rs.relativeStrength}</div>
-                <div class="analysis-item" style="color: #667eea; margin-top: 10px;">
-                  ${rs.details.map(d => `${d}<br>`).join('')}
-                </div>
-              </div>
-            </div>
-
-            <!-- Cup with Handle 체크 -->
-            ${signal.analysis.cph.isCupWithHandle ? `
-              <div class="warning-box">
-                ⚠️ <strong>Cup with Handle 가능성</strong><br>
-                핸들 깊이: ${signal.analysis.cph.handleDepth.toFixed(1)}% | 신뢰도: ${signal.analysis.cph.confidence}%<br>
-                ${signal.analysis.cph.details.join('<br>')}
-              </div>
-            ` : ''}
-
-            <!-- 최종 이유 -->
-            <div style="background: #f8f9fa; padding: 12px; border-radius: 6px; margin-top: 12px;">
-              <strong>🎯 종합 판단:</strong><br>
-              ${signal.reasons.map(r => `${r}<br>`).join('')}
-            </div>
-          </div>
-        `;
-
-        container.innerHTML += html;
-      });
-    }
-
-    function displayActionPlan(signals) {
-      if (signals.length === 0) return;
-
-      document.getElementById('actionPlanCard').style.display = 'block';
-      const tbody = document.getElementById('actionTableBody');
-      tbody.innerHTML = '';
-
-      signals.forEach(item => {
-        const signal = item.signal;
-        const tp = signal.targetPrices;
-
-        const timeline = signal.tier === 'A' ? '즉시~1주' :
-                        signal.tier === 'B' ? '3~6주' : '2개월+';
-
-        const row = `
-          <tr>
-            <td class="tier-${signal.tier.toLowerCase()}"><strong>${signal.tier}</strong></td>
-            <td>${item.stockData.stockName}</td>
-            <td>₩${item.stockData.currentPrice.toLocaleString()}</td>
-            <td>₩${tp.tp1}</td>
-            <td>₩${tp.tp2}</td>
-            <td style="color: #dc3545; font-weight: 700;">₩${tp.stopLoss}</td>
-            <td>${timeline}</td>
-          </tr>
-        `;
-        tbody.innerHTML += row;
-      });
-    }
-
-    function displayMonitoring(tierA) {
-      if (tierA.length === 0) return;
-
-      document.getElementById('monitoringCard').style.display = 'block';
-      const content = document.getElementById('monitoringContent');
-
-      let html = `
-        <div class="info-box">
-          <strong>🔔 당일/익일 체크 항목:</strong><br><br>
-      `;
-
-      tierA.forEach(item => {
-        const vol = item.signal.analysis.volumeAnomaly;
-        const tech = item.signal.analysis.technicals;
-
-        html += `
-          <div style="margin: 12px 0; padding: 12px; background: rgba(255,255,255,0.1); border-radius: 4px;">
-            <strong>${item.stockData.stockName}</strong><br>
-            1️⃣ 거래량 유지: ${vol.volumeMultiple.toFixed(1)}배 이상 지속 여부<br>
-            2️⃣ 기술점: 5MA 유지 (손절선: ₩${item.signal.targetPrices.stopLoss})<br>
-            3️⃣ 섹터: ${item.signal.analysis.sector.isLeadingSector ? '주도섹터 자금 유입' : '섹터 강도'} 모니터링
-          </div>
-        `;
-      });
-
-      html += `
-        </div>
-        <div class="action-plan" style="background: #d4edda; border-color: #c3e6cb;">
-          <h4 style="color: #155724;">✅ 매매 규칙</h4>
-          <div class="action-item">
-            • <strong>진입:</strong> 현재가 ~ +1.5% (VCP 돌파 시)
-          </div>
-          <div class="action-item">
-            • <strong>1차:</strong> +10~15% (수익 실현 50%)
-          </div>
-          <div class="action-item">
-            • <strong>2차:</strong> +25~35% (나머지 50%)
-          </div>
-          <div class="action-item">
-            • <strong>손절:</strong> -7~8% (미너비니 8% 룰)
-          </div>
-        </div>
-      `;
-
-      content.innerHTML = html;
-    }
-
-    function resetForm() {
-      document.getElementById('kospiChange').value = '0';
-      document.getElementById('kosdaqChange').value = '0';
-      document.getElementById('leadingSector').value = '';
-      document.getElementById('marketStrength').value = 'neutral';
-      document.getElementById('stockList').value = '';
-
-      ['marketContextCard', 'tierListCard', 'actionPlanCard', 'monitoringCard'].forEach(id => {
-        document.getElementById(id).style.display = 'none';
-      });
-      document.getElementById('detailAnalysisContainer').innerHTML = '';
-    }
-
-    connectWebSocket();
-  </script>
-</body>
-</html>
+      // 1. 이미 연결 중이거나 열려있다면 새로 만들지 않고 보호 (중복 연결 버그 수정)
+      if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState ===
