@@ -232,6 +232,7 @@
 
       <div class="button-group">
         <button class="btn-secondary" id="autoAnalyzeBtn" onclick="autoAnalyzeMarket()">📊 시장 자동 분석</button>
+        <button class="btn-primary" id="recommendBtn" onclick="getRecommendedStocks()" style="background: linear-gradient(135deg, #667eea, #764ba2); color: white;">🎯 최고 등급 종목 추천</button>
         <button class="btn-primary" id="analyzeBtn" onclick="analyzeStocks()">🔍 분석 시작</button>
         <button class="btn-secondary" onclick="resetForm()">초기화</button>
       </div>
@@ -277,7 +278,29 @@
       </div>
     </div>
 
-    <div id="detailAnalysisContainer"></div>
+    <div class="card" id="recommendationCard" style="display: none;">
+      <h2 class="section-title">🎯 최고 등급 종목 추천 (상위 10개)</h2>
+      <div class="table-wrap">
+        <table id="recommendationTable">
+          <thead>
+            <tr>
+              <th>순위</th>
+              <th>티어</th>
+              <th>종목명</th>
+              <th>현재가</th>
+              <th>등락률</th>
+              <th>거래량 배수</th>
+              <th>신호</th>
+              <th>점수</th>
+              <th>신뢰도</th>
+            </tr>
+          </thead>
+          <tbody id="recommendationTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="recommendationDetailContainer"></div>
 
     <div class="card" id="actionPlanCard" style="display: none;">
       <h2 class="section-title">⚡ Action Plan</h2>
@@ -379,8 +402,102 @@
       document.getElementById('progressCard').style.display = 'none';
     }
 
-    // 📊 시장 자동 분석 함수
-    async function autoAnalyzeMarket() {
+    // 🎯 최고 등급 종목 추천 함수
+    async function getRecommendedStocks() {
+      const btn = document.getElementById('recommendBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳ 시장 스캔 중...';
+      showProgress(0, 100, '🔍 전체 시장 종목 스캔 중... (시총 3천억 이상, 약 600개 / 5~10분 소요)');
+
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        connectWebSocket();
+        const waited = await waitForConnection(10000);
+        if (!waited) {
+          hideProgress();
+          btn.disabled = false;
+          btn.textContent = '🎯 최고 등급 종목 추천';
+          alert('서버 연결 실패. 다시 시도해주세요.');
+          return;
+        }
+      }
+
+      const currentKospi = parseFloat(document.getElementById('kospiChange').value) || 0;
+      const currentKosdaq = parseFloat(document.getElementById('kosdaqChange').value) || 0;
+      const currentSector = document.getElementById('leadingSector').value || 'IT';
+      const currentStrength = document.getElementById('marketStrength').value || 'neutral';
+
+      const recommendationHandler = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'recommendationResult') {
+            ws.removeEventListener('message', recommendationHandler);
+            const recommended = data.data;
+            
+            hideProgress();
+            btn.disabled = false;
+            btn.textContent = '🎯 최고 등급 종목 추천';
+            
+            displayRecommendations(recommended);
+            
+            alert(`✅ 스캔 완료!\n\n🏆 A/B 등급 종목: ${recommended.length}개 발견\n\n상위 10개 추천 리스트를 확인하세요.`);
+          } else if (data.type === 'error') {
+            ws.removeEventListener('message', recommendationHandler);
+            hideProgress();
+            btn.disabled = false;
+            btn.textContent = '🎯 최고 등급 종목 추천';
+            alert('❌ ' + data.message);
+          }
+        } catch (e) {
+          console.error('응답 처리 오류:', e);
+        }
+      };
+
+      ws.addEventListener('message', recommendationHandler);
+      ws.send(JSON.stringify({ 
+        type: 'recommendStocks',
+        marketContext: { 
+          kospiChange: currentKospi, 
+          kosdaqChange: currentKosdaq, 
+          leadingSector: currentSector, 
+          marketStrength: currentStrength 
+        }
+      }));
+    }
+
+    function displayRecommendations(recommended) {
+      document.getElementById('recommendationCard').style.display = 'block';
+      document.getElementById('recommendationDetailContainer').innerHTML = '';
+      
+      const tableBody = document.getElementById('recommendationTableBody');
+      tableBody.innerHTML = '';
+
+      // 상위 10개만 표시
+      const top10 = recommended.slice(0, 10);
+      
+      top10.forEach((item, idx) => {
+        const signal = item.signal;
+        const tierClass = 'tier-' + signal.tier.toLowerCase();
+        const changeSign = item.stockData.changePercent > 0 ? '+' : '';
+        const changeColor = item.stockData.changePercent > 0 ? '#dc3545' : (item.stockData.changePercent < 0 ? '#0d6efd' : '#666');
+        const volMultiple = signal.analysis?.volumeAnomaly?.volumeMultiple ?? 0;
+
+        const row = '<tr>' +
+          '<td style="font-weight: 700; color: #667eea;">#' + (idx + 1) + '</td>' +
+          '<td class="' + tierClass + '"><strong>' + signal.tier + '</strong></td>' +
+          '<td><strong>' + item.stockData.stockName + '</strong></td>' +
+          '<td>₩' + item.stockData.currentPrice.toLocaleString() + '</td>' +
+          '<td style="color:' + changeColor + ';font-weight:600;">' + changeSign + item.stockData.changePercent.toFixed(2) + '%</td>' +
+          '<td style="color: #28a745; font-weight: 600;">' + volMultiple.toFixed(1) + 'x</td>' +
+          '<td><span class="status-badge badge-' + signal.status.toLowerCase() + '">' + signal.status + '</span></td>' +
+          '<td style="font-weight: 700;">' + signal.score + '/100</td>' +
+          '<td>' + signal.confidence + '</td>' +
+        '</tr>';
+        tableBody.innerHTML += row;
+      });
+
+      // 상세 분석 표시
+      displayDetailAnalysis(top10);
+    }
       const btn = document.getElementById('autoAnalyzeBtn');
       btn.disabled = true;
       btn.textContent = '⏳ 시장 분석 중...';
