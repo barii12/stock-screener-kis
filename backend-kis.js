@@ -278,7 +278,7 @@ async function getKisChartData(stockCode) {
 
     const chartData = response.data.output2;
     if (!chartData || !Array.isArray(chartData)) {
-      return { chartData: [], ma5: 0, ma10: 0, ma20: 0, ma50: 0, ma200: 0 };
+      return { chartData: [], ma5: 0, ma10: 0, ma20: 0, ma50: 0, ma150: 0, ma200: 0, vol5Avg: 0, volatility10: 100, low52Week: 0 };
     }
 
     const prices = chartData.map(d => ({
@@ -291,6 +291,27 @@ async function getKisChartData(stockCode) {
     }));
 
     const closePrices = prices.map(p => p.close).reverse();
+    
+    // 📊 5일 평균 거래량 (만주 단위)
+    const recent5Vol = prices.slice(0, 5).map(p => p.volume).filter(v => v > 0);
+    const vol5Avg = recent5Vol.length > 0
+      ? recent5Vol.reduce((a, b) => a + b, 0) / recent5Vol.length
+      : 0;
+    
+    // 📈 10봉 변동폭 (VCP 패턴 확인용)
+    const recent10 = prices.slice(0, 10);
+    let volatility10 = 100;
+    if (recent10.length >= 10) {
+      const highs = recent10.map(p => p.high);
+      const lows = recent10.map(p => p.low);
+      const maxHigh = Math.max(...highs);
+      const minLow = Math.min(...lows);
+      volatility10 = ((maxHigh - minLow) / minLow) * 100;
+    }
+    
+    // 📉 52주 최저가 (240거래일 기준)
+    const yearLows = prices.slice(0, Math.min(240, prices.length)).map(p => p.low).filter(l => l > 0);
+    const low52Week = yearLows.length > 0 ? Math.min(...yearLows) : 0;
 
     return {
       chartData: prices,
@@ -298,10 +319,14 @@ async function getKisChartData(stockCode) {
       ma10: calculateMA(closePrices, 10),
       ma20: calculateMA(closePrices, 20),
       ma50: calculateMA(closePrices, 50),
-      ma200: calculateMA(closePrices, 200)
+      ma150: calculateMA(closePrices, 150),
+      ma200: calculateMA(closePrices, 200),
+      vol5Avg: vol5Avg,
+      volatility10: volatility10,
+      low52Week: low52Week
     };
   } catch (err) {
-    return { chartData: [], ma5: 0, ma10: 0, ma20: 0, ma50: 0, ma200: 0 };
+    return { chartData: [], ma5: 0, ma10: 0, ma20: 0, ma50: 0, ma150: 0, ma200: 0, vol5Avg: 0, volatility10: 100, low52Week: 0 };
   }
 }
 
@@ -314,38 +339,122 @@ function calculateMA(prices, period) {
 // ============================================================
 // 기술 지표 분석 (기존과 동일)
 // ============================================================
+// ============================================================
+// 🛡️ 하드 필터 (통과 못하면 즉시 탈락 → Tier Z)
+// ============================================================
+function hardFilter(stockData, chartData) {
+  const reasons = [];
+  const { currentPrice, marketCap } = stockData;
+  const { ma50, ma150, ma200, vol5Avg, low52Week } = chartData;
+  
+  // 1. 시총 3,000억 ~ 5조 (중소형 주도주)
+  const mcInWon = (marketCap || 0) * 100000000; // 억원 → 원
+  if (mcInWon < 300000000000) return { pass: false, reason: '시총 3,000억 미만' };
+  if (mcInWon > 5000000000000) return { pass: false, reason: '시총 5조 초과 (대형주 제외)' };
+  
+  // 2. 5일 평균 거래량 20만 주 이상
+  if (vol5Avg < 200000) return { pass: false, reason: `5일 평균 거래량 부족 (${Math.round(vol5Avg/10000)}만주)` };
+  
+  // 3. 50MA > 150MA > 200MA (장기 정배열)
+  if (!(ma50 > ma150 && ma150 > ma200 && ma200 > 0)) {
+    return { pass: false, reason: '장기 정배열(50>150>200MA) 미달' };
+  }
+  
+  // 4. 현재가 > 200MA (Stage 2 진입)
+  if (currentPrice <= ma200) return { pass: false, reason: '현재가 200MA 이하' };
+  
+  // 5. 52주 신고가 대비 -25% 이내
+  const high52 = stockData.high52Week || currentPrice * 1.2;
+  const drawdown = ((high52 - currentPrice) / high52) * 100;
+  if (drawdown > 25) return { pass: false, reason: `52주 신고가 대비 -${drawdown.toFixed(1)}%` };
+  
+  // 6. 52주 저가 대비 +30% 이상 상승
+  if (low52Week > 0) {
+    const upFromLow = ((currentPrice - low52Week) / low52Week) * 100;
+    if (upFromLow < 30) return { pass: false, reason: `52주 저가 대비 +${upFromLow.toFixed(1)}% (30% 미달)` };
+  }
+  
+  return { pass: true, reason: '하드 필터 통과' };
+}
+
+// ============================================================
+// 🚫 즉시 탈락 신호 (분배/이탈 신호 = Z 등급)
+// ============================================================
+function detectExitSignal(stockData, chartData) {
+  const { currentPrice, changePercent } = stockData;
+  const { ma5, ma10, volatility10 } = chartData;
+  
+  // 1. 5MA & 10MA 동시 이탈
+  if (currentPrice < ma5 && currentPrice < ma10 && ma5 > 0 && ma10 > 0) {
+    return { exit: true, reason: '5MA & 10MA 동시 이탈' };
+  }
+  
+  // 2. 전일 대비 -4% 이상 하락 + 거래량 동반 (분배 신호)
+  const recentVolumes = chartData.chartData?.slice(0, 5)?.map(d => d.volume) || [];
+  const avgVol = recentVolumes.length > 0 ? recentVolumes.reduce((a, b) => a + b, 0) / recentVolumes.length : 1;
+  const volMul = (stockData.volume || 0) / avgVol;
+  if (changePercent <= -4 && volMul >= 1.5) {
+    return { exit: true, reason: `분배 신호 (${changePercent.toFixed(1)}% + 거래량 ${volMul.toFixed(1)}배)` };
+  }
+  
+  // 3. 10봉 변동폭 30% 초과 (VCP 실패 = 변동성 과대)
+  if (volatility10 > 30) {
+    return { exit: true, reason: `변동성 과대 (10봉 ${volatility10.toFixed(1)}%)` };
+  }
+  
+  return { exit: false };
+}
+
+// ============================================================
+// ✅ 기술적 검증 (미너비니 표준)
+// ============================================================
 function validateTechnicals(stockData, chartData) {
   const result = { score: 0, details: [], vcpStatus: 'none', maAlignment: false, strength: 'weak' };
   const { currentPrice } = stockData;
-  const { ma5, ma10, ma20, ma50 } = chartData;
+  const { ma5, ma10, ma20, ma50, ma150, ma200, volatility10 } = chartData;
 
-  if (ma5 > ma10 && ma10 > ma20 && ma20 > ma50 && ma50 > 0) {
-    result.maAlignment = true; result.score += 25;
-    result.details.push('✓ 완벽 정배열 (5MA>10MA>20MA>50MA)'); result.strength = 'strong';
-  } else if (ma5 > ma10 && ma10 > ma20) {
+  // 장기 정배열 (50 > 150 > 200) — 미너비니 핵심 조건
+  if (ma50 > ma150 && ma150 > ma200 && ma200 > 0) {
+    result.maAlignment = true; result.score += 20;
+    result.details.push('✓ 장기 정배열 (50>150>200MA) — Stage 2 확인');
+    result.strength = 'strong';
+  }
+  
+  // 단기 정배열 (5 > 10 > 20) + 현재가 위치
+  if (currentPrice > ma5 && ma5 > ma10 && ma10 > ma20 && ma20 > 0) {
     result.score += 15;
-    result.details.push('✓ 부분 정배열 (5MA>10MA>20MA)'); result.strength = 'normal';
+    result.details.push('✓ 단기 정배열 (현재가>5>10>20MA)');
+  } else if (currentPrice > ma5 && ma5 > ma10) {
+    result.score += 8;
+    result.details.push('✓ 부분 단기 정배열');
   } else {
-    result.details.push('✗ 역배열 상태'); return result;
+    result.details.push('⚠ 단기선 정렬 부족');
   }
 
-  if (currentPrice > ma5 && ma5 > 0) {
-    result.score += 10;
-    result.details.push(`✓ 현재가(${currentPrice}) > 5MA(${ma5})`);
-  } else {
-    result.details.push('✗ 현재가 < 5MA (약세)');
-  }
-
-  const high52 = stockData.high52Week || stockData.currentPrice * 1.2;
+  // 52주 신고가 근접도
+  const high52 = stockData.high52Week || currentPrice * 1.2;
   if (high52 > 0) {
     const drawdown = ((high52 - currentPrice) / high52) * 100;
-    if (drawdown <= 25) {
-      result.score += 20;
-      result.details.push(`✓ 52주 신고가 대비 -${drawdown.toFixed(1)}% (Stage 2)`);
-    } else {
-      result.details.push(`⚠ 52주 신고가 대비 -${drawdown.toFixed(1)}%`);
+    if (drawdown <= 15) {
+      result.score += 15;
+      result.details.push(`✓ 52주 신고가 근접 -${drawdown.toFixed(1)}% (강한 모멘텀)`);
+    } else if (drawdown <= 25) {
+      result.score += 8;
+      result.details.push(`✓ 52주 신고가 -${drawdown.toFixed(1)}% (양호)`);
     }
   }
+  
+  // VCP 패턴 (10봉 변동폭 수축)
+  if (volatility10 <= 15) {
+    result.score += 15;
+    result.vcpStatus = 'tight';
+    result.details.push(`✓ VCP 강력 (10봉 변동폭 ${volatility10.toFixed(1)}%)`);
+  } else if (volatility10 <= 25) {
+    result.score += 8;
+    result.vcpStatus = 'normal';
+    result.details.push(`✓ VCP 양호 (10봉 변동폭 ${volatility10.toFixed(1)}%)`);
+  }
+  
   return result;
 }
 
@@ -428,65 +537,73 @@ function evaluateAdvancedSignal(stockData, chartData, marketContext) {
     targetPrices: { entry: stockData.currentPrice, tp1: 0, tp2: 0, stopLoss: 0 }
   };
 
-  // 1. 기술적 분석 (모든 종목 실행)
+  // 모든 분석 항상 실행 (UI 표시용)
   const technicals = validateTechnicals(stockData, chartData);
   signal.analysis.technicals = technicals;
   signal.score += technicals.score;
   signal.reasons.push(...technicals.details);
 
-  // 2. 거래량 이상 분석 (모든 종목 실행 — early return 제거)
   const volume = analyzeAnomalyVolume(stockData, chartData);
   signal.analysis.volumeAnomaly = volume;
   signal.score += volume.anomalyScore;
   signal.reasons.push(...volume.details);
 
-  // 3. 섹터 분석 (모든 종목 실행)
   const sector = analyzeSectorRotation(stockData, marketContext);
   signal.analysis.sector = sector;
   signal.score += sector.sectorScore;
   signal.reasons.push(...sector.details);
 
-  // 4. 상대 강도 (모든 종목 실행)
   const rs = calculateRSRating(stockData, marketContext);
   signal.analysis.rs = rs;
   signal.score += rs.rsRating;
   signal.reasons.push(...rs.details);
 
-  // 5. Cup with Handle 패턴
   const cph = detectCupWithHandle(stockData);
   signal.analysis.cph = cph;
 
-  // 6. Tier/상태 결정
+  // 🛡️ 하드 필터 확인
+  const filter = hardFilter(stockData, chartData);
+  signal.analysis.hardFilter = filter;
+  
+  // 🚫 즉시 탈락 신호 확인
+  const exitSig = detectExitSignal(stockData, chartData);
+  signal.analysis.exitSignal = exitSig;
+
+  // 🎯 Tier/상태 결정
   const isVolStrong = volume.anomalyLevel === 'critical' || volume.anomalyLevel === 'high';
   
-  if (technicals.score < 30) {
-    // 기술적 기반 약함 → AVOID
+  if (!filter.pass) {
+    // 하드 필터 통과 못함 → Z
     signal.status = 'AVOID';
     signal.tier = 'Z';
     signal.confidence = 'weak';
-  } else if (signal.score >= 80) {
-    signal.status = 'BUY';
-    signal.tier = 'A';
-    signal.confidence = 'strong';
-  } else if (signal.score >= 50) {
-    signal.status = 'BUY';
-    signal.tier = isVolStrong ? 'A' : 'B';
-    signal.confidence = isVolStrong ? 'strong' : 'medium';
-  } else if (signal.score >= 30) {
-    signal.status = 'HOLD';
-    signal.tier = 'C';
-    signal.confidence = 'medium';
-  } else {
+    signal.reasons.unshift(`🚫 [하드 필터 탈락] ${filter.reason}`);
+  } else if (exitSig.exit) {
+    // 즉시 탈락 신호 → Z
     signal.status = 'SELL';
     signal.tier = 'Z';
     signal.confidence = 'weak';
+    signal.reasons.unshift(`🚫 [탈락 신호] ${exitSig.reason}`);
+  } else if (signal.score >= 80) {
+    signal.status = 'BUY'; signal.tier = 'A'; signal.confidence = 'strong';
+  } else if (signal.score >= 60) {
+    signal.status = 'BUY'; signal.tier = isVolStrong ? 'A' : 'B';
+    signal.confidence = isVolStrong ? 'strong' : 'medium';
+  } else if (signal.score >= 40) {
+    signal.status = 'HOLD'; signal.tier = 'C'; signal.confidence = 'medium';
+  } else {
+    signal.status = 'SELL'; signal.tier = 'Z'; signal.confidence = 'weak';
   }
 
-  // 7. 목표가/손절가 (모든 종목 계산)
+  // 목표가 / 손절가 (미너비니 8% 룰 + 10MA 손절)
+  const ma10 = chartData.ma10 || stockData.currentPrice * 0.95;
+  const stopByRule = stockData.currentPrice * 0.92; // -8%
+  const stopByMA = ma10 * 0.99; // 10MA 약간 아래
+  
   signal.targetPrices.entry = stockData.currentPrice;
-  signal.targetPrices.tp1 = (stockData.currentPrice * 1.12).toFixed(0);
-  signal.targetPrices.tp2 = (stockData.currentPrice * 1.30).toFixed(0);
-  signal.targetPrices.stopLoss = (stockData.currentPrice * 0.93).toFixed(0);
+  signal.targetPrices.tp1 = (stockData.currentPrice * 1.12).toFixed(0);  // +12%
+  signal.targetPrices.tp2 = (stockData.currentPrice * 1.30).toFixed(0);  // +30%
+  signal.targetPrices.stopLoss = Math.max(stopByRule, stopByMA).toFixed(0); // 더 가까운 손절
 
   return signal;
 }
@@ -604,17 +721,18 @@ async function analyzeMarketContextAuto() {
 }
 
 
-const MIN_MARKET_CAP = 300000000000; // 3000억 (3,000억 원)
-
 async function scanAndRecommendStocks(marketContext) {
-  // MST에서 로드된 전체 종목 사용 (약 2,700개)
   await ensureStockMaster();
   const allCodes = Array.from(new Set(STOCK_DICT.values()));
   
-  console.log(`🎯 추천 종목 스캔 시작: 전체 ${allCodes.length}개 종목 → 시총 3000억 이상 필터링`);
-  const results = [];
-  let scannedCount = 0;
-  let qualifiedCount = 0;
+  console.log(`🎯 미너비니 스캔 시작: 전체 ${allCodes.length}개 종목`);
+  console.log('  🛡️ 하드 필터: 시총 3000억~5조 / 5일 평균 거래량 20만+ / 50>150>200MA / 현재가>200MA / 52주 신고가 -25% 이내 / 52주 저가 +30%+');
+  console.log('  🚫 즉시 탈락: 5MA & 10MA 동시 이탈 / 전일 -4% + 거래량 증가 / 10봉 변동폭 30% 초과');
+  
+  const candidates = [];
+  let totalScanned = 0;
+  let hardFilterPassed = 0;
+  let exitSignaled = 0;
 
   for (let i = 0; i < allCodes.length; i++) {
     const code = allCodes[i];
@@ -622,36 +740,49 @@ async function scanAndRecommendStocks(marketContext) {
     
     try {
       const stockData = await getKisStockPrice(code);
-      scannedCount++;
+      totalScanned++;
       
-      // 시총 3000억 이상만 필터링 (단위: 억원 → 원)
-      // KIS API는 시가총액을 억원 단위로 반환 (예: 5000 = 5000억원)
-      const marketCapInWon = (stockData.marketCap || 0) * 100000000; // 억원 → 원
-      if (marketCapInWon < MIN_MARKET_CAP) continue;
-      qualifiedCount++;
+      // 빠른 사전 필터: 시총만 (차트 데이터 호출 절감)
+      const mcInWon = (stockData.marketCap || 0) * 100000000;
+      if (mcInWon < 300000000000 || mcInWon > 5000000000000) continue;
       
       const chartData = await getKisChartData(code);
       const signal = evaluateAdvancedSignal(stockData, chartData, marketContext);
       
-      // A/B 등급만 추천
-      if (signal.tier === 'A' || signal.tier === 'B') {
-        results.push({ stockData, signal });
-        console.log(`  ✅ ${stockData.stockName} (${code}): Tier ${signal.tier}, 점수 ${signal.score}, 시총 ${(stockData.marketCap).toLocaleString()}억`);
+      // 하드 필터 통과 + 즉시 탈락 신호 없음만 후보
+      if (signal.analysis.hardFilter?.pass && !signal.analysis.exitSignal?.exit) {
+        hardFilterPassed++;
+        candidates.push({ stockData, signal });
+        console.log(`  ✅ ${stockData.stockName}: 점수 ${signal.score}, 시총 ${stockData.marketCap.toLocaleString()}억`);
+      } else if (signal.analysis.exitSignal?.exit) {
+        exitSignaled++;
       }
       
-      if ((i + 1) % 50 === 0) {
-        console.log(`  진행: ${i + 1}/${allCodes.length} (시총 자격: ${qualifiedCount}개, 발견: ${results.length}개)`);
+      if ((i + 1) % 100 === 0) {
+        console.log(`  진행: ${i + 1}/${allCodes.length} | 분석 ${totalScanned} | 후보 ${candidates.length}`);
       }
-    } catch (err) {
-      // 조용히 건너뜀
-    }
+    } catch (err) {}
     
-    if (i < allCodes.length - 1) await new Promise(r => setTimeout(r, 80));
+    if (i < allCodes.length - 1) await new Promise(r => setTimeout(r, 60));
   }
   
-  results.sort((a, b) => b.signal.score - a.signal.score);
-  console.log(`✅ 스캔 완료: ${scannedCount}개 조회 → ${qualifiedCount}개 시총 통과 → ${results.length}개 A/B 등급`);
-  return results.slice(0, 10); // 상위 10개
+  console.log(`📊 스캔 완료: ${totalScanned}개 분석 → 하드필터 통과 ${hardFilterPassed}개 → 탈락신호 ${exitSignaled}개`);
+  
+  // 점수순 정렬 후 미너비니 프레임워크 5단계: Tier A(3), B(3), C(4) 강제 분류
+  candidates.sort((a, b) => b.signal.score - a.signal.score);
+  
+  const tierA = candidates.slice(0, 3);
+  const tierB = candidates.slice(3, 6);
+  const tierC = candidates.slice(6, 10);
+  
+  tierA.forEach(item => { item.signal.tier = 'A'; item.signal.status = 'BUY'; item.signal.confidence = 'strong'; });
+  tierB.forEach(item => { item.signal.tier = 'B'; item.signal.status = 'BUY'; item.signal.confidence = 'medium'; });
+  tierC.forEach(item => { item.signal.tier = 'C'; item.signal.status = 'HOLD'; item.signal.confidence = 'medium'; });
+  
+  const top10 = [...tierA, ...tierB, ...tierC];
+  console.log(`🏆 최종 선정: A(${tierA.length}) + B(${tierB.length}) + C(${tierC.length}) = ${top10.length}개`);
+  
+  return top10;
 }
 
 
