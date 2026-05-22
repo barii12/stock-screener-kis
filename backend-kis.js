@@ -428,46 +428,61 @@ function evaluateAdvancedSignal(stockData, chartData, marketContext) {
     targetPrices: { entry: stockData.currentPrice, tp1: 0, tp2: 0, stopLoss: 0 }
   };
 
+  // 1. 기술적 분석 (모든 종목 실행)
   const technicals = validateTechnicals(stockData, chartData);
   signal.analysis.technicals = technicals;
   signal.score += technicals.score;
   signal.reasons.push(...technicals.details);
 
-  if (technicals.score < 30) {
-    signal.status = 'AVOID'; signal.tier = 'Z';
-    signal.targetPrices.entry = stockData.currentPrice;
-    signal.targetPrices.tp1 = (stockData.currentPrice * 1.12).toFixed(0);
-    signal.targetPrices.tp2 = (stockData.currentPrice * 1.30).toFixed(0);
-    signal.targetPrices.stopLoss = (stockData.currentPrice * 0.93).toFixed(0);
-    return signal;
-  }
-
+  // 2. 거래량 이상 분석 (모든 종목 실행 — early return 제거)
   const volume = analyzeAnomalyVolume(stockData, chartData);
   signal.analysis.volumeAnomaly = volume;
   signal.score += volume.anomalyScore;
   signal.reasons.push(...volume.details);
-  if (volume.anomalyLevel === 'critical' || volume.anomalyLevel === 'high') {
-    signal.tier = 'A'; signal.confidence = 'strong';
-  }
 
+  // 3. 섹터 분석 (모든 종목 실행)
   const sector = analyzeSectorRotation(stockData, marketContext);
   signal.analysis.sector = sector;
   signal.score += sector.sectorScore;
   signal.reasons.push(...sector.details);
 
+  // 4. 상대 강도 (모든 종목 실행)
   const rs = calculateRSRating(stockData, marketContext);
   signal.analysis.rs = rs;
   signal.score += rs.rsRating;
   signal.reasons.push(...rs.details);
 
+  // 5. Cup with Handle 패턴
   const cph = detectCupWithHandle(stockData);
   signal.analysis.cph = cph;
 
-  if (signal.score >= 80) { signal.status = 'BUY'; signal.tier = 'A'; signal.confidence = 'strong'; }
-  else if (signal.score >= 50) { signal.status = 'BUY'; signal.tier = signal.tier === 'A' ? 'A' : 'B'; }
-  else if (signal.score >= 30) { signal.status = 'HOLD'; signal.tier = 'C'; }
-  else { signal.status = 'SELL'; signal.tier = 'Z'; }
+  // 6. Tier/상태 결정
+  const isVolStrong = volume.anomalyLevel === 'critical' || volume.anomalyLevel === 'high';
+  
+  if (technicals.score < 30) {
+    // 기술적 기반 약함 → AVOID
+    signal.status = 'AVOID';
+    signal.tier = 'Z';
+    signal.confidence = 'weak';
+  } else if (signal.score >= 80) {
+    signal.status = 'BUY';
+    signal.tier = 'A';
+    signal.confidence = 'strong';
+  } else if (signal.score >= 50) {
+    signal.status = 'BUY';
+    signal.tier = isVolStrong ? 'A' : 'B';
+    signal.confidence = isVolStrong ? 'strong' : 'medium';
+  } else if (signal.score >= 30) {
+    signal.status = 'HOLD';
+    signal.tier = 'C';
+    signal.confidence = 'medium';
+  } else {
+    signal.status = 'SELL';
+    signal.tier = 'Z';
+    signal.confidence = 'weak';
+  }
 
+  // 7. 목표가/손절가 (모든 종목 계산)
   signal.targetPrices.entry = stockData.currentPrice;
   signal.targetPrices.tp1 = (stockData.currentPrice * 1.12).toFixed(0);
   signal.targetPrices.tp2 = (stockData.currentPrice * 1.30).toFixed(0);
