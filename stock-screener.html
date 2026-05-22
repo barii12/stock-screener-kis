@@ -795,6 +795,34 @@
       displayStockCards([...tierA, ...tierB, ...tierC, ...tierZ]);
     }
 
+    // 🆕 점수 분해 항목 빌더
+    function buildBreakdownItems(breakdown, categoryName, categoryColor) {
+      if (!breakdown || breakdown.length === 0) {
+        return `<div style="padding:8px 10px; background:white; border-radius:6px; border-left:3px solid ${categoryColor};">
+          <div style="font-weight:600; color:${categoryColor}; font-size:0.9em;">${categoryName}</div>
+          <div style="font-size:0.85em; color:#999; margin-top:4px;">데이터 부족</div>
+        </div>`;
+      }
+      
+      let html = `<div style="padding:8px 10px; background:white; border-radius:6px; border-left:3px solid ${categoryColor};">
+        <div style="font-weight:600; color:${categoryColor}; font-size:0.9em; margin-bottom:6px;">${categoryName}</div>`;
+      
+      breakdown.forEach(item => {
+        const scoreColor = item.score > 0 ? '#28a745' : (item.score < 0 ? '#dc3545' : '#999');
+        const scoreSign = item.score > 0 ? '+' : '';
+        html += `<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; padding:4px 0; border-top:1px dashed #eee;">
+          <div style="flex:1; font-size:0.85em; color:#555; line-height:1.5;">
+            <div style="font-weight:500;">${item.name}</div>
+            <div style="color:#888; font-size:0.92em; margin-top:2px;">${item.detail}</div>
+          </div>
+          <div style="font-weight:700; color:${scoreColor}; font-size:0.9em; white-space:nowrap;">${scoreSign}${item.score}점</div>
+        </div>`;
+      });
+      
+      html += '</div>';
+      return html;
+    }
+
     // 🆕 종목별 친절한 해석 + 대응방안 통합 카드
     function displayStockCards(signals) {
       let container = document.getElementById('stockCardsContainer');
@@ -808,7 +836,6 @@
       container.innerHTML = '';
       
       if (signals.length === 0) return;
-      
       signals.forEach(item => {
         const s = item.signal;
         const d = item.stockData;
@@ -963,11 +990,27 @@
               </div>
               <div style="font-size:0.85em; color:#555; line-height:1.7;">
                 ${hardFilter.pass 
-                  ? '시총 3,000억~5조 / 5일평균 20만주+ / 50&gt;150&gt;200MA 정배열 / 현재가&gt;200MA / 52주 신고가 -25% 이내 / 52주 저가 +30%+' 
+                  ? '시총 3,000억~5조 / 거래량 10만주+ / 50&gt;150&gt;200MA 정배열 / 현재가&gt;200MA / 52주 신고가 -25% 이내 / 52주 저가 +30%+' 
                   : `<span style="color:#dc3545;">탈락 사유: ${hardFilter.reason}</span>`
                 }
               </div>
               ${exitSignal.exit ? `<div style="margin-top:8px; padding-top:8px; border-top:1px dashed #fd7e14; font-size:0.85em; color:#dc3545;">🚫 <strong>즉시 탈락 신호:</strong> ${exitSignal.reason}</div>` : ''}
+            </div>
+            
+            <!-- 📊 점수 분해 상세 -->
+            <div style="background:linear-gradient(135deg,#eef2ff,#f8f9fa); border:1px solid #667eea; padding:14px; border-radius:8px; margin-bottom:14px;">
+              <div style="font-weight:700; color:#667eea; margin-bottom:10px; font-size:1.05em;">
+                📊 점수 분해 상세 (총 ${s.score}/100점)
+              </div>
+              <div style="display:flex; flex-direction:column; gap:8px;">
+                ${buildBreakdownItems(tech.breakdown, '📈 기술적 분석', '#28a745')}
+                ${buildBreakdownItems(vol.breakdown, '💧 거래량 분석', '#dc3545')}
+                ${buildBreakdownItems(sector.breakdown, '🏢 섹터 순환매', '#fd7e14')}
+                ${buildBreakdownItems(rs.breakdown, '📊 상대 강도 (RS)', '#6f42c1')}
+              </div>
+              <div style="margin-top:10px; padding-top:10px; border-top:1px dashed #ccc; font-size:0.85em; color:#667eea; font-weight:600;">
+                💡 합산: 기술 ${tech.score || 0} + 거래량 ${vol.anomalyScore || 0} + 섹터 ${sector.sectorScore || 0} + RS ${(rs.rsRating || 0) > 0 ? '+' : ''}${rs.rsRating || 0} = <strong>${s.score}점</strong>
+              </div>
             </div>
             
             <!-- 💰 대응방안 (진입가/목표가/손절가) -->

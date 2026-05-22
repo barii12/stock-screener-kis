@@ -344,16 +344,18 @@ function calculateMA(prices, period) {
 // ============================================================
 function hardFilter(stockData, chartData) {
   const reasons = [];
-  const { currentPrice, marketCap } = stockData;
-  const { ma50, ma150, ma200, vol5Avg, low52Week } = chartData;
+  const { currentPrice, marketCap, volume } = stockData;
+  const { ma50, ma150, ma200, low52Week } = chartData;
   
   // 1. 시총 3,000억 ~ 5조 (중소형 주도주)
-  const mcInWon = (marketCap || 0) * 100000000; // 억원 → 원
+  const mcInWon = (marketCap || 0) * 100000000;
   if (mcInWon < 300000000000) return { pass: false, reason: '시총 3,000억 미만' };
   if (mcInWon > 5000000000000) return { pass: false, reason: '시총 5조 초과 (대형주 제외)' };
   
-  // 2. 5일 평균 거래량 20만 주 이상
-  if (vol5Avg < 200000) return { pass: false, reason: `5일 평균 거래량 부족 (${Math.round(vol5Avg/10000)}만주)` };
+  // 2. 당일 거래량 (10만주 이상 — 유동성 확보)
+  if (!volume || volume < 100000) {
+    return { pass: false, reason: `거래량 부족 (${Math.round((volume||0)/10000)}만주, 10만주 미만)` };
+  }
   
   // 3. 50MA > 150MA > 200MA (장기 정배열)
   if (!(ma50 > ma150 && ma150 > ma200 && ma200 > 0)) {
@@ -406,29 +408,38 @@ function detectExitSignal(stockData, chartData) {
 }
 
 // ============================================================
-// ✅ 기술적 검증 (미너비니 표준)
+// ✅ 기술적 검증 (미너비니 표준) — 점수 분해 포함
 // ============================================================
 function validateTechnicals(stockData, chartData) {
-  const result = { score: 0, details: [], vcpStatus: 'none', maAlignment: false, strength: 'weak' };
+  const result = { 
+    score: 0, details: [], breakdown: [], 
+    vcpStatus: 'none', maAlignment: false, strength: 'weak' 
+  };
   const { currentPrice } = stockData;
   const { ma5, ma10, ma20, ma50, ma150, ma200, volatility10 } = chartData;
 
-  // 장기 정배열 (50 > 150 > 200) — 미너비니 핵심 조건
+  // 장기 정배열 (50>150>200) — 미너비니 핵심
   if (ma50 > ma150 && ma150 > ma200 && ma200 > 0) {
-    result.maAlignment = true; result.score += 20;
-    result.details.push('✓ 장기 정배열 (50>150>200MA) — Stage 2 확인');
+    result.maAlignment = true;
+    result.score += 20;
+    result.breakdown.push({ name: '장기 정배열 (50>150>200MA)', score: 20, detail: `50MA(₩${ma50.toLocaleString()}) > 150MA(₩${ma150.toLocaleString()}) > 200MA(₩${ma200.toLocaleString()}) — Stage 2 확인` });
+    result.details.push('✓ 장기 정배열 (50>150>200MA)');
     result.strength = 'strong';
+  } else {
+    result.breakdown.push({ name: '장기 정배열', score: 0, detail: '50>150>200MA 미달 — Stage 1 또는 약세' });
   }
   
-  // 단기 정배열 (5 > 10 > 20) + 현재가 위치
+  // 단기 정배열
   if (currentPrice > ma5 && ma5 > ma10 && ma10 > ma20 && ma20 > 0) {
     result.score += 15;
-    result.details.push('✓ 단기 정배열 (현재가>5>10>20MA)');
+    result.breakdown.push({ name: '단기 정배열 (현재가>5>10>20MA)', score: 15, detail: `현재가(₩${currentPrice.toLocaleString()}) > 5MA(₩${ma5.toLocaleString()}) > 10MA(₩${ma10.toLocaleString()}) > 20MA(₩${ma20.toLocaleString()})` });
+    result.details.push('✓ 단기 정배열');
   } else if (currentPrice > ma5 && ma5 > ma10) {
     result.score += 8;
+    result.breakdown.push({ name: '부분 단기 정배열', score: 8, detail: '5MA, 10MA만 정렬 — 추세 형성 초기' });
     result.details.push('✓ 부분 단기 정배열');
   } else {
-    result.details.push('⚠ 단기선 정렬 부족');
+    result.breakdown.push({ name: '단기 정배열', score: 0, detail: '5MA, 10MA, 20MA 정렬 부족' });
   }
 
   // 52주 신고가 근접도
@@ -437,86 +448,109 @@ function validateTechnicals(stockData, chartData) {
     const drawdown = ((high52 - currentPrice) / high52) * 100;
     if (drawdown <= 15) {
       result.score += 15;
-      result.details.push(`✓ 52주 신고가 근접 -${drawdown.toFixed(1)}% (강한 모멘텀)`);
+      result.breakdown.push({ name: '52주 신고가 근접', score: 15, detail: `신고가 ₩${high52.toLocaleString()} 대비 -${drawdown.toFixed(1)}% (강한 모멘텀)` });
+      result.details.push(`✓ 52주 신고가 -${drawdown.toFixed(1)}%`);
     } else if (drawdown <= 25) {
       result.score += 8;
-      result.details.push(`✓ 52주 신고가 -${drawdown.toFixed(1)}% (양호)`);
+      result.breakdown.push({ name: '52주 신고가 근접', score: 8, detail: `신고가 대비 -${drawdown.toFixed(1)}% (양호)` });
+      result.details.push(`✓ 52주 신고가 -${drawdown.toFixed(1)}%`);
+    } else {
+      result.breakdown.push({ name: '52주 신고가 근접', score: 0, detail: `신고가 대비 -${drawdown.toFixed(1)}% (-25% 초과)` });
     }
   }
   
-  // VCP 패턴 (10봉 변동폭 수축)
-  if (volatility10 <= 15) {
+  // VCP 패턴
+  if (volatility10 <= 15 && volatility10 > 0) {
     result.score += 15;
     result.vcpStatus = 'tight';
-    result.details.push(`✓ VCP 강력 (10봉 변동폭 ${volatility10.toFixed(1)}%)`);
-  } else if (volatility10 <= 25) {
+    result.breakdown.push({ name: 'VCP 변동성 수축', score: 15, detail: `10봉 변동폭 ${volatility10.toFixed(1)}% — 강한 수축 (돌파 임박 신호)` });
+    result.details.push(`✓ VCP 강력 (${volatility10.toFixed(1)}%)`);
+  } else if (volatility10 <= 25 && volatility10 > 0) {
     result.score += 8;
     result.vcpStatus = 'normal';
-    result.details.push(`✓ VCP 양호 (10봉 변동폭 ${volatility10.toFixed(1)}%)`);
+    result.breakdown.push({ name: 'VCP 변동성 수축', score: 8, detail: `10봉 변동폭 ${volatility10.toFixed(1)}% — 양호한 수축` });
+    result.details.push(`✓ VCP 양호 (${volatility10.toFixed(1)}%)`);
+  } else {
+    result.breakdown.push({ name: 'VCP 변동성 수축', score: 0, detail: volatility10 > 0 ? `10봉 변동폭 ${volatility10.toFixed(1)}% — 변동성 과대` : '데이터 부족' });
   }
   
   return result;
 }
 
 function analyzeAnomalyVolume(stockData, chartData) {
-  const result = { anomalyScore: 0, details: [], anomalyLevel: 'normal', smartMoneySignal: false, volumeMultiple: 1 };
-  const recentVolumes = chartData.chartData?.slice(0, 5)?.map(d => d.volume) || [];
+  const result = { 
+    anomalyScore: 0, details: [], breakdown: [],
+    anomalyLevel: 'normal', smartMoneySignal: false, volumeMultiple: 1 
+  };
+  const recentVolumes = chartData.chartData?.slice(0, 5)?.map(d => d.volume).filter(v => v > 0) || [];
   const avgVolume = recentVolumes.length > 0
     ? recentVolumes.reduce((a, b) => a + b, 0) / recentVolumes.length
     : (stockData.volume || 1);
 
   const volumeMultiple = stockData.volume / avgVolume;
   result.volumeMultiple = volumeMultiple;
+  const todayVol = Math.round((stockData.volume || 0) / 10000);
+  const avgVol = Math.round(avgVolume / 10000);
 
   if (volumeMultiple >= 5) {
     result.anomalyLevel = 'critical'; result.anomalyScore = 50; result.smartMoneySignal = true;
-    result.details.push(`🔴 [CRITICAL] 거래량 폭발! ${volumeMultiple.toFixed(1)}배`);
+    result.breakdown.push({ name: '거래량 폭발 (CRITICAL)', score: 50, detail: `당일 ${todayVol}만주 / 평균 ${avgVol}만주 = ${volumeMultiple.toFixed(1)}배 — 스마트머니 대규모 진입 신호` });
+    result.details.push(`🔴 [CRITICAL] 거래량 ${volumeMultiple.toFixed(1)}배`);
   } else if (volumeMultiple >= 3) {
     result.anomalyLevel = 'high'; result.anomalyScore = 40; result.smartMoneySignal = true;
-    result.details.push(`🟠 [HIGH] 거래량 대폭 증가 ${volumeMultiple.toFixed(1)}배`);
+    result.breakdown.push({ name: '거래량 대폭 증가 (HIGH)', score: 40, detail: `당일 ${todayVol}만주 / 평균 ${avgVol}만주 = ${volumeMultiple.toFixed(1)}배 — 강한 매수세 유입` });
+    result.details.push(`🟠 [HIGH] 거래량 ${volumeMultiple.toFixed(1)}배`);
   } else if (volumeMultiple >= 1.5) {
     result.anomalyLevel = 'normal'; result.anomalyScore = 20;
-    result.details.push(`🟡 [NORMAL] 거래량 증가 ${volumeMultiple.toFixed(1)}배`);
+    result.breakdown.push({ name: '거래량 증가', score: 20, detail: `당일 ${todayVol}만주 / 평균 ${avgVol}만주 = ${volumeMultiple.toFixed(1)}배` });
+    result.details.push(`🟡 거래량 ${volumeMultiple.toFixed(1)}배`);
   } else {
     result.anomalyScore = 5;
-    result.details.push(`🟢 [LOW] 거래량 안정 ${volumeMultiple.toFixed(1)}배`);
+    result.breakdown.push({ name: '거래량 보통', score: 5, detail: `당일 ${todayVol}만주 / 평균 ${avgVol}만주 = ${volumeMultiple.toFixed(1)}배` });
+    result.details.push(`🟢 거래량 ${volumeMultiple.toFixed(1)}배`);
   }
   return result;
 }
 
 function analyzeSectorRotation(stockData, marketContext) {
-  const result = { sectorScore: 0, details: [], isLeadingSector: false, isWeakSector: false };
-  const leadingSectors = marketContext.leadingSector?.split(',') || ['IT'];
+  const result = { sectorScore: 0, details: [], breakdown: [], isLeadingSector: false, isWeakSector: false };
+  const leadingSectors = marketContext.leadingSector?.split(',').map(s => s.trim()) || ['IT'];
   const sector = stockData.sector || '기타';
 
-  if (leadingSectors.some(s => sector.includes(s.trim()))) {
+  if (leadingSectors.some(s => sector.includes(s))) {
     result.isLeadingSector = true; result.sectorScore = 30;
-    result.details.push(`✓ 주도섹터 진입 (${sector})`);
+    result.breakdown.push({ name: '주도섹터 진입', score: 30, detail: `현재 섹터 "${sector}"가 주도 섹터(${leadingSectors.join(',')})에 포함 — 자금 유입 방향성 일치` });
+    result.details.push(`✓ 주도섹터 (${sector})`);
   } else {
     result.isWeakSector = true; result.sectorScore = 10;
-    result.details.push(`⚠ 중립/약세 섹터 (${sector})`);
+    result.breakdown.push({ name: '주도섹터 진입', score: 10, detail: `섹터 "${sector}" — 주도섹터(${leadingSectors.join(',')}) 미포함, 자금 유입 약함` });
+    result.details.push(`⚠ 중립 섹터 (${sector})`);
   }
   return result;
 }
 
 function calculateRSRating(stockData, marketContext) {
-  const result = { rsRating: 0, details: [], relativeStrength: 'normal' };
+  const result = { rsRating: 0, details: [], breakdown: [], relativeStrength: 'normal' };
   const stockChange = stockData.changePercent || 0;
   const marketChange = marketContext.kospiChange || 0;
   const rsMultiple = stockChange - marketChange;
 
   if (rsMultiple > 3) {
     result.rsRating = 30; result.relativeStrength = 'strong';
+    result.breakdown.push({ name: 'RS Rating', score: 30, detail: `종목 ${stockChange.toFixed(2)}% vs 시장 ${marketChange.toFixed(2)}% = +${rsMultiple.toFixed(2)}% 우위 — 진정한 주도주` });
     result.details.push(`✓ RS 우수 +${rsMultiple.toFixed(1)}%`);
   } else if (rsMultiple > -2) {
     result.rsRating = 15;
+    result.breakdown.push({ name: 'RS Rating', score: 15, detail: `종목 ${stockChange.toFixed(2)}% vs 시장 ${marketChange.toFixed(2)}% = ${rsMultiple.toFixed(2)}% — 시장 동조` });
     result.details.push(`⚠ RS 평균 ${rsMultiple.toFixed(1)}%`);
   } else {
     result.rsRating = -20; result.relativeStrength = 'weak';
-    result.details.push(`✗ RS 약함`);
+    result.breakdown.push({ name: 'RS Rating', score: -20, detail: `종목 ${stockChange.toFixed(2)}% vs 시장 ${marketChange.toFixed(2)}% = ${rsMultiple.toFixed(2)}% — 시장 대비 약세 (감점)` });
+    result.details.push(`✗ RS 약함 ${rsMultiple.toFixed(1)}%`);
   }
   return result;
 }
+
 
 function detectCupWithHandle(stockData) {
   const result = { isCupWithHandle: false, handleDepth: 0, confidence: 0, details: [] };
