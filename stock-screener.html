@@ -569,7 +569,7 @@
         }
       }
 
-      showProgress(0, 100, '🔍 전체 시장 스캔 중 (시총 3000억 이상 필터링)... 약 8~15분 소요');
+      showProgress(0, 100, '🔍 미너비니 6단계 스크리닝 중...\n시총 3000억~5조 / 50>150>200MA / 52주 신고가 근접 등\n(약 10~20분 소요)');
 
       const recommendHandler = (event) => {
         try {
@@ -591,7 +591,22 @@
             allSignals = recommended;
             displayResults();
             
-            alert(`✅ 추천 완료!\n\nA/B 등급 종목 ${recommended.length}개를 찾았습니다.\n점수 순으로 정렬되어 표시됩니다.`);
+            const tierA_count = recommended.filter(r => r.signal.tier === 'A').length;
+            const tierB_count = recommended.filter(r => r.signal.tier === 'B').length;
+            const tierC_count = recommended.filter(r => r.signal.tier === 'C').length;
+            
+            alert(
+              `✅ 미너비니 스크리닝 완료!\n\n` +
+              `🏆 추천 종목 ${recommended.length}개:\n` +
+              `  • Tier A (즉시~1주): ${tierA_count}개\n` +
+              `  • Tier B (3~6주): ${tierB_count}개\n` +
+              `  • Tier C (2개월+): ${tierC_count}개\n\n` +
+              `${recommended.length < 10 ? '⚠️ 후보가 10개 미만 — 시장이 약세장 신호\n\n' : ''}` +
+              `📊 통과 기준:\n` +
+              `• 시총 3,000억~5조 / 5일평균 20만주+\n` +
+              `• 50>150>200MA 정배열\n` +
+              `• 52주 신고가 -25% 이내 / 저가 +30%+`
+            );
           } else if (data.type === 'error') {
             ws.removeEventListener('message', recommendHandler);
             hideProgress();
@@ -801,12 +816,20 @@
         const tech = s.analysis?.technicals || {};
         const sector = s.analysis?.sector || {};
         const rs = s.analysis?.rs || {};
+        const hardFilter = s.analysis?.hardFilter || {};
+        const exitSignal = s.analysis?.exitSignal || {};
         const volMul = vol.volumeMultiple ?? 0;
         const tp = s.targetPrices || {};
         
         // 🎯 종합 결론 한 줄
         let verdict = '', verdictColor = '#666', verdictIcon = '';
-        if (s.tier === 'A') {
+        if (exitSignal.exit) {
+          verdict = `즉시 탈락 — ${exitSignal.reason}`;
+          verdictColor = '#dc3545'; verdictIcon = '🚫';
+        } else if (!hardFilter.pass && hardFilter.reason) {
+          verdict = `하드 필터 탈락 — ${hardFilter.reason}`;
+          verdictColor = '#6c757d'; verdictIcon = '⚠️';
+        } else if (s.tier === 'A') {
           verdict = '강력 매수 후보 — 즉시 진입 검토';
           verdictColor = '#dc3545'; verdictIcon = '🔥';
         } else if (s.tier === 'B') {
@@ -931,6 +954,20 @@
                 <div style="font-size:0.8em; color:#999; margin-bottom:4px;">🎯 신뢰도 (${s.confidence})</div>
                 <div style="font-size:0.95em; color:#333;">${confInterp}</div>
               </div>
+            </div>
+            
+            <!-- 🛡️ 미너비니 6단계 하드 필터 -->
+            <div style="background:#fff8f0; border:1px solid #fd7e14; padding:12px 14px; border-radius:8px; margin-bottom:14px;">
+              <div style="font-weight:700; color:#fd7e14; margin-bottom:8px; font-size:0.95em;">
+                🛡️ 미너비니 6단계 하드 필터: ${hardFilter.pass ? '✅ 전체 통과' : '❌ ' + (hardFilter.reason || '미통과')}
+              </div>
+              <div style="font-size:0.85em; color:#555; line-height:1.7;">
+                ${hardFilter.pass 
+                  ? '시총 3,000억~5조 / 5일평균 20만주+ / 50&gt;150&gt;200MA 정배열 / 현재가&gt;200MA / 52주 신고가 -25% 이내 / 52주 저가 +30%+' 
+                  : `<span style="color:#dc3545;">탈락 사유: ${hardFilter.reason}</span>`
+                }
+              </div>
+              ${exitSignal.exit ? `<div style="margin-top:8px; padding-top:8px; border-top:1px dashed #fd7e14; font-size:0.85em; color:#dc3545;">🚫 <strong>즉시 탈락 신호:</strong> ${exitSignal.reason}</div>` : ''}
             </div>
             
             <!-- 💰 대응방안 (진입가/목표가/손절가) -->
